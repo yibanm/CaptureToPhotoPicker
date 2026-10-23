@@ -13,6 +13,7 @@ import com.highcapable.yukihookapi.extension.kavaref.hookAll
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import com.highcapable.yukihookapi.hook.log.YLog
 import com.highcapable.yukihookapi.hook.param.HookParam
+import com.richkobe.capturetophotopicker.config.FrameworkEnv
 import com.richkobe.capturetophotopicker.config.RedirectConfig
 import java.io.InputStream
 
@@ -57,10 +58,24 @@ object CameraRedirectHooker : YukiBaseHooker() {
      */
     private val pendingOutputs = HashMap<String, Uri?>()
 
+    /**
+     * LSPatch/NPatch 内置(embed)模式标记：模块被嵌进宿主补丁包时，框架把作用域固定为宿主
+     * 且随宿主启动自动加载——此模式下「自动识别、自动生效」，跳过生效层开关（用户没有机会
+     * 打开模块 UI 拨开关）。onHook 时检测一次缓存（object 单例按进程隔离，不会串宿主）。
+     */
+    @Volatile
+    private var embeddedMode = false
+
     private fun outputKey(activity: Any?, requestCode: Int) =
         "${System.identityHashCode(activity)}:$requestCode"
 
     override fun onHook() {
+        // 内置模式检测：宿主补丁包 assets 里有本模块 APK 即 embed 模式（见 FrameworkEnv）
+        embeddedMode = runCatching { FrameworkEnv.isEmbeddedIn(appInfo.sourceDir) }.getOrDefault(false)
+        if (embeddedMode) {
+            YLog.info("检测到 LSPatch/NPatch 内置模式：对宿主自动启用相机重定向（无需配置）")
+        }
+
         // 出站：拦截 startActivityForResult（两个重载都 hook），把相机 Intent 改写成 PhotoPicker
         Activity::class.resolve()
             .optional(silent = true)
@@ -92,8 +107,10 @@ object CameraRedirectHooker : YukiBaseHooker() {
 
         // 生效层开关（实时、无需重启宿主）：模块 UI 未勾选本宿主时一律放行，
         // 保持宿主原生相机行为——这是「取消作用域后马上失效」的落点。
+        // 例外：LSPatch/NPatch 内置(embed)模式跳过开关——模块被嵌进宿主补丁包即应对宿主
+        // 自动生效（用户没有打开模块 UI 拨开关的机会），这就是「自动识别本软件自动捕捉作用域」。
         // 接收者是外层 Hooker（YukiBaseHooker : PackageParam），持有宿主 packageName 与 preferences 通道。
-        if (!RedirectConfig.isEnabledFor(this@CameraRedirectHooker)) return
+        if (!embeddedMode && !RedirectConfig.isEnabledFor(this@CameraRedirectHooker)) return
 
         val intent = args.firstOrNull { it is Intent } as? Intent ?: return
         val requestCode = args.firstOrNull { it is Int } as? Int ?: return

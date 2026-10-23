@@ -27,7 +27,7 @@ object AppListLoader {
             pm.getInstalledApplications(PackageManager.GET_META_DATA)
         }.getOrDefault(emptyList())
 
-        installed.mapNotNull { appInfo ->
+        val entries = installed.mapNotNull { appInfo ->
             runCatching {
                 val label = pm.getApplicationLabel(appInfo).toString()
                 val icon = runCatching { pm.getApplicationIcon(appInfo) }.getOrNull()
@@ -44,5 +44,21 @@ object AppListLoader {
                 )
             }.getOrNull()
         }
+
+        // 额外置顶补一个「系统框架」(packageName=android) 合成条目：
+        // getInstalledApplications 不返回 android 包，但 framework scope 的系统级重定向
+        // （SystemPickerRedirectHooker 经 loadSystem 注入）要求用户能把「系统框架」勾进作用域。
+        // label 硬编码为「系统框架」以便一眼识别；图标取真实 android 图标，取不到则用默认兜底（AppRow 已处理）。
+        val frameworkEntry = AppEntry(
+            info = AppInfo(
+                label = "系统框架",
+                packageName = "android",
+                installTime = 0L,
+                updateTime = 0L,
+                isSystemApp = true,
+            ),
+            icon = runCatching { pm.getApplicationIcon("android") }.getOrNull(),
+        )
+        listOf(frameworkEntry) + entries
     }
 }

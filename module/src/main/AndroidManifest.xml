@@ -36,6 +36,11 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- LSPatch/NPatch 补丁管理器按此 legacy category 识别模块设置页（companion UI 入口） -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
+            </intent-filter>
         </activity>
     </application>
 

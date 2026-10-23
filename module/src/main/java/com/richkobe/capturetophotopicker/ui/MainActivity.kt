@@ -8,6 +8,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -17,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -29,10 +31,15 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.highcapable.yukihookapi.YukiHook
+import com.richkobe.capturetophotopicker.BuildConfig
+import com.richkobe.capturetophotopicker.R
+import com.richkobe.capturetophotopicker.config.FrameworkEnv
 import com.richkobe.capturetophotopicker.config.RedirectConfig
 import kotlinx.coroutines.launch
 
@@ -78,6 +85,36 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = scheme) {
                 Scaffold(
                     snackbarHost = { SnackbarHost(snackbar) },
+                    // 标题栏：模块名 + 版本号 + 右上角 GitHub 直达
+                    topBar = {
+                        TopAppBar(
+                            title = {
+                                Column {
+                                    Text(
+                                        stringResource(R.string.app_name),
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(
+                                        "v${BuildConfig.VERSION_NAME}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            },
+                            actions = {
+                                IconButton(onClick = { openGitHub(context) }) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_github),
+                                        contentDescription = stringResource(R.string.topbar_github),
+                                    )
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            ),
+                        )
+                    },
                     bottomBar = {
                         NavigationBar {
                             NavigationBarItem(
@@ -97,7 +134,9 @@ class MainActivity : ComponentActivity() {
                 ) { padding ->
                     Box(Modifier.padding(padding).fillMaxSize()) {
                         if (tab == 0) {
-                            StatusScreen()
+                            StatusScreen(
+                                onMessage = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
+                            )
                         } else {
                             ScopeScreen(
                                 onMessage = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
@@ -157,12 +196,17 @@ private data class FrameworkState(
 
 /** Tab 0：激活状态与工作方式。 */
 @Composable
-private fun StatusScreen() {
+private fun StatusScreen(onMessage: (String) -> Unit) {
     val fs = rememberFrameworkServiceState()
     val context = LocalContext.current
     // 生效名单数量（实时开关层）
     var enabledCount by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { enabledCount = RedirectConfig.readEnabled(context).size }
+    // 系统级重定向总开关（framework scope，跨进程实时生效）
+    var systemRedirect by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        enabledCount = RedirectConfig.readEnabled(context).size
+        systemRedirect = RedirectConfig.readSystemRedirect(context)
+    }
 
     Column(
         modifier = Modifier
@@ -171,6 +215,35 @@ private fun StatusScreen() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        // 首次使用分步指引（看过一次后默认收起，可再展开）
+        SetupGuideCard()
+
+        // 免 root 补丁框架（LSPatch/NPatch）环境卡：仅检测到补丁框架时显示
+        if (FrameworkEnv.isPatchFramework(fs.frameworkName)) {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(20.dp)) {
+                    Text(
+                        stringResource(R.string.patch_env_title, fs.frameworkName),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        stringResource(R.string.patch_env_builtin),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "若你是「本地(经理)模式」（模块单独安装、目标 App 另行打补丁），" +
+                            "作用域请在补丁管理器里勾选，详见「作用域」页引导。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
         ElevatedCard(Modifier.fillMaxWidth()) {
             Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                 val ok = fs.connected && fs.active
@@ -222,6 +295,37 @@ private fun StatusScreen() {
             }
         }
 
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("系统级图片选择替换", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "全系统总闸（framework 作用域，只注入 system_server，不 hook 任何目标 App）。\n" +
+                                "开启后，所有 App 发出的标准图片选择请求（ACTION_GET_CONTENT / ACTION_PICK + 图片）" +
+                                "统一改由系统相册选择器（Photo Picker）处理。\n" +
+                                "⚠️ 需先在 LSPosed 作用域勾选「系统框架」并重启一次才生效。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = systemRedirect,
+                        onCheckedChange = { want ->
+                            val ok = RedirectConfig.writeSystemRedirect(context, want)
+                            if (ok) {
+                                systemRedirect = want
+                                onMessage(if (want) "已开启系统级替换（立即生效）" else "已关闭系统级替换（立即恢复原生）")
+                            } else {
+                                onMessage("写入失败：框架服务未连接")
+                            }
+                        },
+                    )
+                }
+            }
+        }
+
         Text("工作方式", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         InfoCard(Icons.Filled.CameraAlt, "拦截相机调起",
             "作用域内且已启用开关的 App 调起相机拍照页（com.oplus.camera/.component.CapturePhotoActivity 或 ACTION_IMAGE_CAPTURE）时被拦截。")
@@ -231,6 +335,174 @@ private fun StatusScreen() {
             "选中的图同时以三种姿势回填：EXTRA_OUTPUT 字节回写、\"data\" Bitmap 注入、data/clipData Uri——调用方无论怎么读都像刚拍完照。")
         InfoCard(Icons.Filled.Hub, "作用域官方通道",
             "作用域经 libxposed XposedService（YukiHook.Module.scope）直接读写框架真相源：本页勾选状态即 LSPosed 实际作用域，选中应用由框架弹「允许作用域」授权框。")
+
+        // 概念说明：两个开关分别管什么（最容易用混的点）
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(20.dp)) {
+                Text(
+                    stringResource(R.string.concept_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(8.dp))
+                ConceptLine(Icons.Filled.Security, stringResource(R.string.concept_scope))
+                ConceptLine(Icons.Filled.ToggleOn, stringResource(R.string.concept_switch))
+                ConceptLine(Icons.Filled.Rule, stringResource(R.string.concept_rule))
+                ConceptLine(Icons.Filled.SettingsSuggest, stringResource(R.string.concept_system))
+            }
+        }
+
+        // 常见问题（按现象找原因，不用翻文档）
+        FaqCard()
+    }
+}
+
+/** 一行「图标 + 说明」，用于概念区。 */
+@Composable
+private fun ConceptLine(icon: ImageVector, text: String) {
+    Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/**
+ * 首次使用分步指引卡：四步 + 可折叠。
+ * 展开状态记在 rememberSaveable（进程内保持；冷启动默认展开一次，看过收起后本会话不再弹）。
+ */
+@Composable
+private fun SetupGuideCard() {
+    var expanded by rememberSaveable { mutableStateOf(true) }
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp)) {
+            Row(
+                Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Filled.Lightbulb,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.guide_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        stringResource(R.string.guide_subtitle),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Icon(
+                    if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = null,
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GuideStep(1, stringResource(R.string.guide_step1), stringResource(R.string.guide_step1_detail))
+                    GuideStep(2, stringResource(R.string.guide_step2), stringResource(R.string.guide_step2_detail))
+                    GuideStep(3, stringResource(R.string.guide_step3), stringResource(R.string.guide_step3_detail))
+                    GuideStep(4, stringResource(R.string.guide_step4), stringResource(R.string.guide_step4_detail))
+                    TextButton(onClick = { expanded = false }, modifier = Modifier.align(Alignment.End)) {
+                        Text(stringResource(R.string.guide_fold))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 单步指引：序号圆徽 + 标题 + 细节。 */
+@Composable
+private fun GuideStep(index: Int, title: String, detail: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Surface(
+            shape = MaterialTheme.shapes.extraSmall,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(24.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    "$index",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** 常见问题卡：Q/A 列表，点击展开单条。 */
+@Composable
+private fun FaqCard() {
+    val qa = listOf(
+        stringResource(R.string.faq_q1) to stringResource(R.string.faq_a1),
+        stringResource(R.string.faq_q2) to stringResource(R.string.faq_a2),
+        stringResource(R.string.faq_q3) to stringResource(R.string.faq_a3),
+        stringResource(R.string.faq_q4) to stringResource(R.string.faq_a4),
+        stringResource(R.string.faq_q5) to stringResource(R.string.faq_a5),
+    )
+    var openIndex by remember { mutableStateOf(-1) }
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.AutoMirrored.Filled.HelpOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    stringResource(R.string.faq_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            qa.forEachIndexed { i, (q, a) ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { openIndex = if (openIndex == i) -1 else i }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(q, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Icon(
+                        if (openIndex == i) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                AnimatedVisibility(visible = openIndex == i) {
+                    Text(
+                        a,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+                    )
+                }
+                if (i != qa.lastIndex) HorizontalDivider()
+            }
+        }
     }
 }
 
@@ -240,6 +512,10 @@ private fun StatusScreen() {
 private fun ScopeScreen(onMessage: (String) -> Unit) {
     val context = LocalContext.current
     val fs = rememberFrameworkServiceState()
+
+    // 免 root 补丁框架（LSPatch/NPatch）检测：其作用域由补丁管理器管理，
+    // 本页 requestScope 会被框架明确拒绝（设计行为）——UI 相应改为只读展示+引导
+    val isPatchEnv = FrameworkEnv.isPatchFramework(fs.frameworkName)
 
     // 应用列表（一次性加载）
     var apps by remember { mutableStateOf<List<AppListLoader.AppEntry>?>(null) }
@@ -270,7 +546,8 @@ private fun ScopeScreen(onMessage: (String) -> Unit) {
     val visibleApps = remember(apps, query, sortType, filter, reverse, selectedFirst, realScope, enabled) {
         (apps ?: emptyList()).asSequence()
             .filter { e ->
-                when (filter) {
+                // 「系统框架」(android) 是系统级重定向的必备入口，任何筛选下都保持可见
+                e.info.packageName == "android" || when (filter) {
                     AppFilter.ALL -> true
                     AppFilter.USER_ONLY -> !e.info.isSystemApp
                     AppFilter.SYSTEM_ONLY -> e.info.isSystemApp
@@ -361,18 +638,42 @@ private fun ScopeScreen(onMessage: (String) -> Unit) {
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    text = if (fs.connected)
-                        "点应用行=加入/移出 LSPosed 真实作用域（加入时框架弹「允许作用域」授权框）；" +
-                            "行内 Switch=实时生效开关，拨动立即开/关重定向，无需重启目标应用。" +
-                            "首次加入作用域的应用需重启一次完成注入。"
-                    else
-                        "框架服务未连接：无法读写真实作用域。请确认模块已在 LSPosed 中启用后重进本页。",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                if (!fs.connected) {
+                if (isPatchEnv) {
+                    // LSPatch/NPatch 本地(经理)模式：作用域在补丁管理器里配，本页只读+引导
+                    Text(
+                        text = stringResource(R.string.patch_env_local_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(stringResource(R.string.patch_env_local_step1), style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.patch_env_local_step2), style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.patch_env_local_step3), style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.patch_env_local_step4), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        stringResource(R.string.patch_env_scope_readonly),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Spacer(Modifier.height(8.dp))
-                    FilledTonalButton(onClick = { openLsposedManager(context) }) { Text("打开 LSPosed 管理器") }
+                    FilledTonalButton(onClick = { openPatchManager(context, onMessage) }) {
+                        Text(stringResource(R.string.patch_open_manager))
+                    }
+                } else {
+                    Text(
+                        text = if (fs.connected)
+                            "点应用行=加入/移出 LSPosed 真实作用域（加入时框架弹「允许作用域」授权框）；" +
+                                "行内 Switch=实时生效开关，拨动立即开/关重定向，无需重启目标应用。" +
+                                "首次加入作用域的应用需重启一次完成注入。"
+                        else
+                            "框架服务未连接：无法读写真实作用域。请确认模块已在 LSPosed 中启用后重进本页。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (!fs.connected) {
+                        Spacer(Modifier.height(8.dp))
+                        FilledTonalButton(onClick = { openLsposedManager(context) }) { Text("打开 LSPosed 管理器") }
+                    }
                 }
             }
         }
@@ -392,18 +693,18 @@ private fun ScopeScreen(onMessage: (String) -> Unit) {
                         inScope = inScope,
                         enabledNow = enabled.contains(pkg),
                         serviceReady = fs.connected,
-                        // 点行 → 弹确认框（加入/移出作用域）
+                        // 点行 → 弹确认框（加入/移出作用域）；补丁框架下改为引导（requestScope 必被拒）
                         onRowClick = {
-                            if (!fs.connected) {
-                                onMessage("框架服务未连接，无法管理作用域")
-                            } else {
-                                pending = if (inScope) PendingAction(pkg, entry.info.label, Action.REMOVE_SCOPE)
+                            when {
+                                isPatchEnv -> onMessage("补丁框架下请在 LSPatch/NPatch 管理器里给目标应用勾选本模块（本页作用域只读）")
+                                !fs.connected -> onMessage("框架服务未连接，无法管理作用域")
+                                else -> pending = if (inScope) PendingAction(pkg, entry.info.label, Action.REMOVE_SCOPE)
                                 else PendingAction(pkg, entry.info.label, Action.ADD_SCOPE)
                             }
                         },
-                        // Switch → 实时生效开关（仅作用域内的应用可拨动）
+                        // Switch → 实时生效开关（LSPosed 下须先在作用域内；补丁框架下 scope 由管理器定，读到即可拨）
                         onSwitch = { want ->
-                            if (!inScope) {
+                            if (!isPatchEnv && !inScope) {
                                 onMessage("请先把「${entry.info.label}」加入作用域")
                                 return@AppRow
                             }
@@ -490,6 +791,36 @@ private fun ScopeScreen(onMessage: (String) -> Unit) {
 /** 待确认的作用域操作。 */
 private data class PendingAction(val pkg: String, val label: String, val action: Action)
 private enum class Action { ADD_SCOPE, REMOVE_SCOPE }
+
+/** 打开补丁管理器（LSPatch=org.lsposed.lspatch / NPatch 系常见包名），都失败则 Toast 指路。 */
+private fun openPatchManager(context: Context, onMessage: (String) -> Unit) {
+    val candidates = listOf(
+        "org.lsposed.lspatch",
+        "moe.shizuku.redirectstorage", // 部分 NPatch 分支管理器包名，探测失败自动跳过
+        "com.npatch.manager",
+    )
+    val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    for (pkg in candidates) {
+        val intent = Intent(launch).setPackage(pkg)
+        if (intent.resolveActivity(context.packageManager) != null) {
+            runCatching { context.startActivity(intent) }.onSuccess { return }
+        }
+    }
+    onMessage("未找到补丁管理器，请手动打开 LSPatch / NPatch 管理器")
+}
+
+/** 打开 GitHub 仓库页（无浏览器可用时静默失败不崩）。 */
+private fun openGitHub(context: Context) {
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_REPO)))
+    }.onFailure {
+        android.widget.Toast
+            .makeText(context, "无法打开浏览器：$GITHUB_REPO", android.widget.Toast.LENGTH_LONG)
+            .show()
+    }
+}
+
+private const val GITHUB_REPO = "https://github.com/yibanm/CaptureToPhotoPicker"
 
 /** 打开 LSPosed 管理器（该 fork 无作用域深链，只能开首页+文案指路，见项目经验）。 */
 private fun openLsposedManager(context: Context) {

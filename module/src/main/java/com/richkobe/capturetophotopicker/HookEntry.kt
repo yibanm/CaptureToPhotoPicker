@@ -4,6 +4,7 @@ import com.highcapable.yukihookapi.YukiHook
 import com.highcapable.yukihookapi.annotation.xposed.YukiHookLibXposedEntry
 import com.highcapable.yukihookapi.hook.xposed.YukiHookXposedModule
 import com.richkobe.capturetophotopicker.hook.CameraRedirectHooker
+import com.richkobe.capturetophotopicker.hook.SystemPickerRedirectHooker
 
 /**
  * LSPosed 模块入口（libxposed 底座，Modern Xposed API 102）。
@@ -44,8 +45,12 @@ object HookEntry : YukiHookXposedModule {
 
     override fun onHook() = YukiHook.encase {
         // 无名 loadApp：对作用域内被注入的每一个 App 生效（排除模块自身）
+        // —— app scope 层：相机拍照重定向（逐 App 注入 + 结果翻译）
         loadApp(excludeSelf = true) {
             loadHooker(CameraRedirectHooker)
         }
+        // framework scope 层：系统级图片选择重定向（只注入 system_server，不碰任何目标 App）。
+        // 仅当用户在 LSPosed 作用域里勾选了「系统框架」时，本 hooker 才会被装载。
+        loadSystem(SystemPickerRedirectHooker)
     }
 }

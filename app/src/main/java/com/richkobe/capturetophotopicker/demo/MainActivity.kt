@@ -45,11 +45,13 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "CaptureToPickerDemo"
-        // requestCode 区分四种调起来源，回调时据此打印来源标签
+        // requestCode 区分六种调起来源，回调时据此打印来源标签
         private const val REQ_CAMERA_IMPLICIT = 1001
         private const val REQ_CAMERA_EXPLICIT = 1002
         private const val REQ_PICKER_IMPLICIT = 1003
         private const val REQ_PICKER_EXPLICIT = 1004
+        private const val REQ_GET_CONTENT = 1005
+        private const val REQ_PICK_IMAGES = 1006
     }
 
     // Compose 界面状态：出站 Intent dump / 入站 result dump / 结果图 / 状态提示
@@ -72,6 +74,8 @@ class MainActivity : ComponentActivity() {
                     "B" -> launchCameraExplicit()
                     "C" -> launchPickerImplicit()
                     "D" -> launchPickerExplicit()
+                    "E" -> launchGetContent()
+                    "F" -> launchPickImages()
                 }
             }
         }
@@ -98,6 +102,8 @@ class MainActivity : ComponentActivity() {
                     onCameraExplicit = ::launchCameraExplicit,
                     onPickerImplicit = ::launchPickerImplicit,
                     onPickerExplicit = ::launchPickerExplicit,
+                    onGetContent = ::launchGetContent,
+                    onPickImages = ::launchPickImages,
                 )
             }
         }
@@ -109,6 +115,8 @@ class MainActivity : ComponentActivity() {
             "B" -> window.decorView.postDelayed(::launchCameraExplicit, 600)
             "C" -> window.decorView.postDelayed(::launchPickerImplicit, 600)
             "D" -> window.decorView.postDelayed(::launchPickerExplicit, 600)
+            "E" -> window.decorView.postDelayed(::launchGetContent, 600)
+            "F" -> window.decorView.postDelayed(::launchPickImages, 600)
         }
     }
 
@@ -154,6 +162,27 @@ class MainActivity : ComponentActivity() {
             )
         }
         fire(intent, REQ_PICKER_EXPLICIT, "D. PhotoPicker·显式 MainActivity")
+    }
+
+    // ============================ 标准图片选择（A 类测试） ============================
+
+    // E. ACTION_GET_CONTENT + image 类型（最通用的标准图片选择，A 类 App 的典型调用）。
+    // 注意：注释里绝不能出现 image/* 字样——Kotlin 块注释可嵌套，/* 会开启新注释层导致永不闭合
+    private fun launchGetContent() {
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        fire(intent, REQ_GET_CONTENT, "E. GET_CONTENT image/*")
+    }
+
+    /** F. ACTION_PICK + images（老式相册选择，部分 App 仍用）。 */
+    private fun launchPickImages() {
+        val intent = Intent(Intent.ACTION_PICK).apply {
+            data = android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            type = "image/*"
+        }
+        fire(intent, REQ_PICK_IMAGES, "F. PICK images")
     }
 
     // ============================ 统一调起 + 容错 ============================
@@ -205,6 +234,8 @@ class MainActivity : ComponentActivity() {
             REQ_CAMERA_EXPLICIT -> "B. 相机·显式"
             REQ_PICKER_IMPLICIT -> "C. PhotoPicker·隐式"
             REQ_PICKER_EXPLICIT -> "D. PhotoPicker·显式"
+            REQ_GET_CONTENT -> "E. GET_CONTENT image/*"
+            REQ_PICK_IMAGES -> "F. PICK images"
             else -> "未知($requestCode)"
         }
         val inDump = "$label\n  resultCode = ${IntentDump.resultCodeName(resultCode)}\n" +
@@ -294,6 +325,8 @@ private fun DemoScreen(
     onCameraExplicit: () -> Unit,
     onPickerImplicit: () -> Unit,
     onPickerExplicit: () -> Unit,
+    onGetContent: () -> Unit,
+    onPickImages: () -> Unit,
 ) {
     Scaffold(
         topBar = { TopAppBar(title = { Text("我没带身份证 · Demo 测试床") }) },
@@ -320,6 +353,14 @@ private fun DemoScreen(
             }
             Button(onClick = onPickerExplicit, modifier = Modifier.fillMaxWidth()) {
                 Text("D · 显式 photopicker.MainActivity")
+            }
+
+            Text("③ 标准图片选择（A 类·应被系统级重定向）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Button(onClick = onGetContent, modifier = Modifier.fillMaxWidth()) {
+                Text("E · GET_CONTENT image/*")
+            }
+            Button(onClick = onPickImages, modifier = Modifier.fillMaxWidth()) {
+                Text("F · PICK images")
             }
 
             HorizontalDivider()

@@ -2,4 +2,51 @@
 <resources>
     <string name="app_name">我没带身份证</string>
     <string name="module_description">把调起相机拍照（com.oplus.camera/CapturePhotoActivity 或 ACTION_IMAGE_CAPTURE）的请求转为系统相册选择（PhotoPicker），选中的图片按相机式结果直接装填回去。</string>
+
+    <!-- ===== 标题栏 ===== -->
+    <string name="topbar_github">GitHub 仓库</string>
+
+    <!-- ===== 使用指引（分步，可折叠）===== -->
+    <string name="guide_title">第一次用？按这四步走</string>
+    <string name="guide_subtitle">做完就不用了；卡在哪一步，看那一步的说明。</string>
+    <string name="guide_step1">在 LSPosed 里启用本模块</string>
+    <string name="guide_step1_detail">LSPosed 管理器 → 模块 → 我没带身份证 → 打开开关。装完模块或更新模块后需要重启一次手机。</string>
+    <string name="guide_step2">把要改的应用加进作用域</string>
+    <string name="guide_step2_detail">切到下方「作用域」页 → 搜索并点击目标应用 → 弹确认框点「确认加入」→ 系统再弹「允许作用域」授权框，点允许。</string>
+    <string name="guide_step3">重启那个应用一次</string>
+    <string name="guide_step3_detail">加入作用域后，模块代码要等应用重启才会注入进去。从最近任务划掉它再打开就行（只有首次加入需要，之后改开关都不用重启）。</string>
+    <string name="guide_step4">拨开行内 Switch 启用</string>
+    <string name="guide_step4_detail">「作用域」页里每个应用右侧的开关就是实时生效闸：拨开=它的拍照请求立刻变成相册选图；拨关=立刻恢复原相机。这两步都不用重启应用。</string>
+    <string name="guide_fold">收起指引</string>
+
+    <!-- ===== 概念说明（避免用不来）===== -->
+    <string name="concept_title">两个开关的区别</string>
+    <string name="concept_scope">「作用域」= 模块代码能不能进这个应用。由框架管，改了要重启该应用一次才注入。</string>
+    <string name="concept_switch">「行内 Switch」= 进去之后要不要动手改它的拍照请求。实时生效，不用重启。</string>
+    <string name="concept_rule">所以：只加作用域不拨开关 = 什么都不发生；只拨开关不加作用域 = 开关是灰的点不动。</string>
+    <string name="concept_system">另外「状态」页的系统级总闸管的是另一件事：把所有应用发出的普通图片选择请求（非拍照）也统一交给系统相册选择器。要用它，作用域里必须勾上置顶的「系统框架」。</string>
+
+    <!-- ===== 免 root 补丁框架（LSPatch / NPatch）适配文案 ===== -->
+    <string name="patch_env_title">当前运行在免 root 补丁框架：%1$s</string>
+    <string name="patch_env_builtin">内置(集成)模式：本模块已被嵌进目标应用的补丁包，作用域由框架自动固定为该应用，相机重定向自动生效，无需任何配置。</string>
+    <string name="patch_env_local_title">本地(经理)模式：作用域要在补丁管理器里配置</string>
+    <string name="patch_env_local_step1">1. 打开 LSPatch / NPatch 管理器；</string>
+    <string name="patch_env_local_step2">2. 找到目标应用 → 模块 → 勾选「我没带身份证」；</string>
+    <string name="patch_env_local_step3">3. 重新打补丁并安装（覆盖原补丁包）；</string>
+    <string name="patch_env_local_step4">4. 回到本页拨动该应用的 Switch 启用实时重定向。</string>
+    <string name="patch_env_scope_readonly">补丁框架下作用域由管理器管理，本页只读展示（运行时请求授权会被框架拒绝，属设计行为）。下方列表仍可作实时生效开关用。</string>
+    <string name="patch_open_manager">打开补丁管理器</string>
+
+    <!-- ===== 常见问题 ===== -->
+    <string name="faq_title">用不来？先看这里</string>
+    <string name="faq_q1">作用域页提示「框架服务未连接」</string>
+    <string name="faq_a1">模块没在 LSPosed 里启用，或刚启用还没重启手机。点提示里的按钮打开管理器确认，然后重启一次。</string>
+    <string name="faq_q2">加了作用域、也拨了开关，拍照还是进相机</string>
+    <string name="faq_a2">九成是忘了重启那个应用（第 3 步）。从最近任务划掉重开。还不行就核对：应用调的是不是系统相机拍照（本模块只拦 ACTION_IMAGE_CAPTURE 与 com.oplus.camera 拍照页；应用自己内置的相机不受影响）。</string>
+    <string name="faq_q3">选完图，应用里没出现图片</string>
+    <string name="faq_a3">这是「装填」环节，模块已按三种常见读取方式全部回填（文件回写 / 内联缩略图 / 图片地址）。个别应用用了自己的私有读取方式，把应用名告诉我，我针对它适配。</string>
+    <string name="faq_q4">桌面图标还是旧的</string>
+    <string name="faq_a4">桌面启动器缓存了旧图标。把桌面上那个图标删掉，从应用列表里重新拖一个出来；或重启一次桌面/手机。</string>
+    <string name="faq_q5">想临时全部停用</string>
+    <string name="faq_a5">在 LSPosed 里关掉本模块，或把各应用的 Switch 逐个拨关。不需要卸载应用。</string>
 </resources>
