@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose 模块界面用 AppCompat 主题打底（YukiHookAPI ModuleApplication 需要 AppCompat 体系） -->
+    <style name="Theme.Module.Default" parent="Theme.AppCompat.DayNight.NoActionBar" />
+</resources>

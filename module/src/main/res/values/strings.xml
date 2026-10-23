@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">我没带身份证</string>
+    <string name="module_description">把调起相机拍照（com.oplus.camera/CapturePhotoActivity 或 ACTION_IMAGE_CAPTURE）的请求转为系统相册选择（PhotoPicker），选中的图片按相机式结果直接装填回去。</string>
+</resources>

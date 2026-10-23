@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Demo 使用 Compose 动态主题，这里只需一个空的启动主题占位，避免 windowBackground 闪白 -->
+    <style name="Theme.PickerRedirectDemo" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

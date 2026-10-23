@@ -1,0 +1,53 @@
+[versions]
+agp = "9.4.1"
+kotlin = "2.4.21"
+# KSP 2.3.x 线（本机 Kotlin 2.4.21 下已验证可编译，沿用项目 3 结论）
+ksp = "2.3.12"
+coreKtx = "1.19.1"
+lifecycle = "2.11.0"
+coroutines = "1.11.0"
+activityCompose = "1.13.0"
+composeBom = "2026.09.00"
+material3 = "1.5.0-beta01"
+materialIcons = "1.7.8"
+appcompat = "1.7.1"
+# YukiHook 1.5.0（2026-10-20 发布，项目由 YukiHookAPI 更名并拆分多模块，BOM 统一版本）
+yukihook = "1.5.0"
+# kavaref BOM：与 yukihook-core 1.5.0 POM 中声明一致，避免版本漂移
+kavarefBom = "1.1.1"
+# Modern Xposed（libxposed）：api 编译期 provided，service 提供作用域管理 Binder 通道
+libxposedApi = "102.0.0"
+libxposedService = "102.0.0"
+
+[libraries]
+androidx-core = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-lifecycle = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+compose-ui = { group = "androidx.compose.ui", name = "ui" }
+compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
+compose-material-icons = { group = "androidx.compose.material", name = "material-icons-extended", version.ref = "materialIcons" }
+# ---- module 专属 ----
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+yukihook-bom = { module = "com.highcapable.yukihookapi:yukihook-bom", version.ref = "yukihook" }
+yukihook-core = { module = "com.highcapable.yukihookapi:yukihook-core" }
+yukihook-compiler = { module = "com.highcapable.yukihookapi:yukihook-compiler" }
+yukihook-runtime-libxposed = { module = "com.highcapable.yukihookapi:yukihook-runtime-libxposed" }
+yukihook-extension-kavaref = { module = "com.highcapable.yukihookapi:yukihook-extension-kavaref" }
+kavaref-bom = { module = "com.highcapable.kavaref:kavaref-bom", version.ref = "kavarefBom" }
+kavaref-core = { module = "com.highcapable.kavaref:kavaref-core" }
+kavaref-android = { module = "com.highcapable.kavaref:kavaref-android" }
+kavaref-extension = { module = "com.highcapable.kavaref:kavaref-extension" }
+libxposed-api = { module = "io.github.libxposed:api", version.ref = "libxposedApi" }
+libxposed-service = { module = "io.github.libxposed:service", version.ref = "libxposedService" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

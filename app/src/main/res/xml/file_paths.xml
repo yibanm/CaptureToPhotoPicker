@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 供 FileProvider 暴露 cache 目录，用于测试相机 EXTRA_OUTPUT 回写路径 -->
+    <cache-path
+        name="shared_images"
+        path="camera_out/" />
+    <files-path
+        name="internal_images"
+        path="camera_out/" />
+</paths>

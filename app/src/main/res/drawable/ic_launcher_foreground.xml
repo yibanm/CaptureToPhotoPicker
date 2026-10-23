@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「我没带身份证」自适应图标 · 前景层（108x108dp viewport）
+
+  视觉语义（一眼读懂「相机 → 相册」）：
+    左：相机（机身 + 取景凸起 + 镜头）  中：向右箭头  右：风景照片（相框 + 太阳 + 山）
+  三元素横向居中排布；外层 group 以画布中心缩放 0.88，把含描边的整体边界
+  （x 22..87.3 / y 42..66.3）收进自适应图标 66dp 圆形安全区（r=33），
+  避免圆形/水滴遮罩裁掉照片右缘与相机左缘。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.88"
+        android:scaleY="0.88">
+
+    <!-- ===== 左：相机 ===== -->
+    <!-- 取景器/闪光灯凸起 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M31,42 L39,42 A2,2 0 0 1 41,44 L41,47 L29,47 L29,44 A2,2 0 0 1 31,42 Z" />
+    <!-- 机身（圆角矩形，中心挖出镜头孔） -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M26,46 L42,46 A4,4 0 0 1 46,50 L46,62 A4,4 0 0 1 42,66 L26,66 A4,4 0 0 1 22,62 L22,50 A4,4 0 0 1 26,46 Z
+                         M34,49 A7,7 0 1 0 34,63 A7,7 0 1 0 34,49 Z" />
+    <!-- 镜头内芯（半透明，做出镜片层次） -->
+    <path
+        android:fillColor="#4D000000"
+        android:pathData="M34,51.5 A4.5,4.5 0 1 0 34,60.5 A4.5,4.5 0 1 0 34,51.5 Z" />
+    <!-- 镜头高光点 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M31.6,53 A1.3,1.3 0 1 0 31.6,55.6 A1.3,1.3 0 1 0 31.6,53 Z" />
+
+    <!-- ===== 中：向右箭头 ===== -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M49.5,52.6 L56.5,52.6 L56.5,48.6 A0.9,0.9 0 0 1 58,48 L62.2,53.4 A0.9,0.9 0 0 1 62.2,54.6 L58,60 A0.9,0.9 0 0 1 56.5,59.4 L56.5,55.4 L49.5,55.4 A0.9,0.9 0 0 1 48.6,54.5 L48.6,53.5 A0.9,0.9 0 0 1 49.5,52.6 Z" />
+
+    <!-- ===== 右：风景照片 ===== -->
+    <!-- 相框（描边） -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.6"
+        android:strokeLineJoin="round"
+        android:pathData="M67,42 L82,42 A4,4 0 0 1 86,46 L86,62 A4,4 0 0 1 82,66 L67,66 A4,4 0 0 1 63,62 L63,46 A4,4 0 0 1 67,42 Z" />
+    <!-- 太阳 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M70,48.4 A2.6,2.6 0 1 0 70,53.6 A2.6,2.6 0 1 0 70,48.4 Z" />
+    <!-- 远山（较矮） -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M64.6,62.6 L70,55.4 A1,1 0 0 1 71.6,55.4 L77,62.6 Z" />
+    <!-- 近山（较高，压在远山之上） -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M73.4,62.6 L79.2,53.2 A1,1 0 0 1 80.9,53.2 L85.2,62.6 Z" />
+
+    </group>
+</vector>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 图标主色（科比紫）：与 ic_launcher_background 渐变中值一致，
+         供 API<26 的旧图标回退底色与 UI 点缀使用 -->
+    <color name="ic_launcher_background">#6A3FB5</color>
+    <color name="purple_primary">#9575CD</color>
+    <color name="purple_deep">#3F1D7A</color>
+</resources>
