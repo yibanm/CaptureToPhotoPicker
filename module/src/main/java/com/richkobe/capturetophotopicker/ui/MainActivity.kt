@@ -78,6 +78,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // 运行模式检测（不依赖服务是否连接——本地模式 UI 进程本就拿不到服务，见 FrameworkEnv）
+            val fs = rememberFrameworkServiceState()
+            val mode = remember(fs.connected, fs.frameworkName) {
+                FrameworkEnv.invalidateUiModeCache()
+                FrameworkEnv.detectMode(context, fs.frameworkName, fs.connected)
+            }
+
             MaterialTheme(colorScheme = scheme) {
                 Scaffold(
                     snackbarHost = { SnackbarHost(snackbar) },
@@ -130,11 +137,15 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.padding(padding).fillMaxSize()) {
                         if (tab == 0) {
                             StatusScreen(
+                                fs = fs,
+                                mode = mode,
                                 onMessage = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
                                 onGoScope = { tab = 1 },
                             )
                         } else {
                             ScopeScreen(
+                                fs = fs,
+                                mode = mode,
                                 onMessage = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
                             )
                         }
@@ -182,14 +193,17 @@ private data class FrameworkState(
     val apiVersion: Int = 0,
 )
 
-/** Tab 0：激活状态 + 三步指引 + FAQ。 */
+/** Tab 0：运行模式、激活状态与使用指引。 */
 @Composable
-private fun StatusScreen(onMessage: (String) -> Unit, onGoScope: () -> Unit) {
-    val fs = rememberFrameworkServiceState()
+private fun StatusScreen(
+    fs: FrameworkState,
+    mode: FrameworkEnv.RuntimeMode,
+    onMessage: (String) -> Unit,
+    onGoScope: () -> Unit,
+) {
     val context = LocalContext.current
     var enabledCount by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { enabledCount = RedirectConfig.readEnabled(context).size }
-    val isPatchEnv = FrameworkEnv.isPatchFramework(fs.frameworkName)
 
     Column(
         modifier = Modifier
@@ -198,56 +212,64 @@ private fun StatusScreen(onMessage: (String) -> Unit, onGoScope: () -> Unit) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // 激活状态卡
+        // 运行模式卡：本地模式下服务不连是常态，如实展示模式而非报「未激活」（模式检测不依赖服务连接）
         ElevatedCard(Modifier.fillMaxWidth()) {
-            Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                val ok = fs.connected && fs.active
-                Icon(
-                    imageVector = if (ok) Icons.Filled.CheckCircle else if (fs.connected) Icons.Filled.Warning else Icons.Filled.HourglassEmpty,
-                    contentDescription = null,
-                    tint = if (ok) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(40.dp),
-                )
-                Spacer(Modifier.width(14.dp))
-                Column {
+            Column(Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = when (mode) {
+                            FrameworkEnv.RuntimeMode.LSPOSED -> Icons.Filled.CheckCircle
+                            FrameworkEnv.RuntimeMode.PATCH_EMBEDDED -> Icons.Filled.AutoFixHigh
+                            FrameworkEnv.RuntimeMode.PATCH_LOCAL -> Icons.Filled.PhoneAndroid
+                            FrameworkEnv.RuntimeMode.UNKNOWN -> Icons.Filled.HourglassEmpty
+                        },
+                        contentDescription = null,
+                        tint = if (mode == FrameworkEnv.RuntimeMode.UNKNOWN)
+                            MaterialTheme.colorScheme.error else Color(0xFF2E7D32),
+                        modifier = Modifier.size(32.dp),
+                    )
+                    Spacer(Modifier.width(12.dp))
                     Text(
-                        text = when {
-                            ok -> "模块已激活"
-                            fs.connected -> "服务已连接但未检测到激活"
-                            else -> "正在检测框架服务…"
+                        text = when (mode) {
+                            FrameworkEnv.RuntimeMode.LSPOSED -> "LSPosed 模式"
+                            FrameworkEnv.RuntimeMode.PATCH_EMBEDDED -> "免 root · 内置模式"
+                            FrameworkEnv.RuntimeMode.PATCH_LOCAL -> "免 root · 本地模式"
+                            FrameworkEnv.RuntimeMode.UNKNOWN -> "未检测到运行框架"
                         },
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                     )
-                    Text(
-                        text = when {
-                            ok -> "${fs.frameworkName} ${fs.frameworkVersion} · API ${fs.apiVersion}"
-                            fs.connected -> "请在 LSPosed 管理器中启用本模块"
-                            else -> "若长时间停留在此状态，请确认模块已在 LSPosed 中启用并重启过手机"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
-            }
-        }
-
-        // 免 root 环境说明卡（仅补丁框架下显示）
-        if (isPatchEnv) {
-            ElevatedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(20.dp)) {
-                    Text(
-                        stringResource(R.string.patch_env_title, fs.frameworkName),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        stringResource(R.string.patch_env_local_detail),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = when (mode) {
+                        FrameworkEnv.RuntimeMode.LSPOSED ->
+                            if (fs.connected && fs.active)
+                                "${fs.frameworkName} ${fs.frameworkVersion} · API ${fs.apiVersion}\n" +
+                                    "在「作用域」页点应用打勾，系统会弹「允许作用域」授权框；之后实时启停无需重启应用。"
+                            else
+                                "服务连接中…若长时间停留在此状态，请确认已在 LSPosed 管理器启用本模块，并重启过一次手机。"
+                        FrameworkEnv.RuntimeMode.PATCH_EMBEDDED ->
+                            "本模块已被嵌进目标应用，对该应用自动生效，无需任何配置。\n" +
+                                "作用域在打补丁时就固定为宿主自身（框架行为），这里不需要也不会去请求作用域。"
+                        FrameworkEnv.RuntimeMode.PATCH_LOCAL ->
+                            "免 root 本地模式：**不需要连接 Xposed 框架服务，也不请求作用域**。\n" +
+                                "哪些应用被注入由补丁管理器决定（打补丁时给目标应用勾选本模块）；\n" +
+                                "本框架不允许运行时改作用域，所以直接在「作用域」页点应用打勾即可实时启停重定向。\n" +
+                                "还没给应用打补丁的，点下方按钮到管理器里勾选本模块后重新打补丁。"
+                        FrameworkEnv.RuntimeMode.UNKNOWN ->
+                            "没检测到 LSPosed，也没检测到已安装的 LSPatch/NPatch 管理器。\n" +
+                                "· 用 LSPosed：装模块 APK 后到管理器启用，再重启一次手机；\n" +
+                                "· 用免 root：装 NPatch/LSPatch 管理器，或直接用内置模式打补丁。\n" +
+                                "「作用域」页仍可管理启停名单，但要等框架真正注入后才会生效。"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (mode == FrameworkEnv.RuntimeMode.PATCH_LOCAL ||
+                    mode == FrameworkEnv.RuntimeMode.UNKNOWN
+                ) {
+                    Spacer(Modifier.height(12.dp))
                     FilledTonalButton(onClick = { openPatchManager(context, onMessage) }) {
                         Text(stringResource(R.string.patch_open_manager))
                     }
@@ -289,7 +311,7 @@ private fun StatusScreen(onMessage: (String) -> Unit, onGoScope: () -> Unit) {
         InfoCard(Icons.Filled.CheckCircle, "选图装填",
             "选中的图片按相机式结果回填：写入 App 原定的输出文件、内联缩略图、图片地址三种方式同时补齐——App 无论怎么读都像刚拍完照。")
         InfoCard(Icons.Filled.Bolt, "实时启停",
-            "勾选=下次调起相机立即转为相册；取消=立即恢复原相机。都不需要重启应用（仅首次勾选后需重启一次完成注入）。")
+            "勾选=下次调起相机立即转为相册；取消=立即恢复原相机。都不需要重启应用（LSPosed 下首次勾选后需重启一次完成注入）。")
 
         // FAQ
         FaqCard()
@@ -421,16 +443,24 @@ private fun FaqCard() {
 /**
  * Tab 1：作用域页（单一交互：点行=启用/取消，无多余开关）。
  *
- * 「已启用」= 在框架作用域内 且 在生效名单内（两层同时满足才算真正生效）。
- * 点未启用的行 → 弹确认框「启用」→ 写生效名单 + scope.request（框架弹授权框）；
- * 点已启用的行 → 弹确认框「取消启用」→ 移出生效名单（立即停用）+ scope.remove。
+ * **任何运行模式都能管理，不以「框架服务是否连接」为门槛**（用户明确要求）：
+ *  - LSPOSED：写生效名单 + `scope.request()`（框架弹「允许作用域」授权框）；
+ *  - PATCH_LOCAL：写生效名单，**绝不请求作用域**——本地模式下 UI 进程不被注入、拿不到服务，
+ *    且 NPatch 明确「scope is set by patching, cannot be granted at runtime」，请求必失败还弹错误提示；
+ *    注入哪些应用由补丁管理器在打补丁时决定，这里只管「注入后要不要动手」；
+ *  - PATCH_EMBEDDED：模块嵌在宿主里自动生效，UI 通常不会被打开；
+ *  - UNKNOWN：仍允许写生效名单（框架真注入后即生效），并提示去装/启用框架。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ScopeScreen(onMessage: (String) -> Unit) {
+private fun ScopeScreen(
+    fs: FrameworkState,
+    mode: FrameworkEnv.RuntimeMode,
+    onMessage: (String) -> Unit,
+) {
     val context = LocalContext.current
-    val fs = rememberFrameworkServiceState()
-    val isPatchEnv = FrameworkEnv.isPatchFramework(fs.frameworkName)
+    // 只有 LSPosed（服务已连）才有「框架真实作用域」概念；其它模式一律空集，不作为交互门槛
+    val canManageScope = mode == FrameworkEnv.RuntimeMode.LSPOSED && fs.connected
 
     var apps by remember { mutableStateOf<List<AppListLoader.AppEntry>?>(null) }
     LaunchedEffect(Unit) { apps = runCatching { AppListLoader.load(context) }.getOrNull() }
@@ -439,9 +469,11 @@ private fun ScopeScreen(onMessage: (String) -> Unit) {
     var refreshTick by remember { mutableIntStateOf(0) }
     var realScope by remember { mutableStateOf<Set<String>>(emptySet()) }
     var enabled by remember { mutableStateOf<Set<String>>(emptySet()) }
-    LaunchedEffect(refreshTick, fs.connected) {
-        if (fs.connected) {
+    LaunchedEffect(refreshTick, canManageScope) {
+        if (canManageScope) {
             realScope = runCatching { YukiHook.Module.scope.packages.toSet() }.getOrDefault(emptySet())
+        } else {
+            realScope = emptySet()
         }
         enabled = RedirectConfig.readEnabled(context)
     }
@@ -472,7 +504,8 @@ private fun ScopeScreen(onMessage: (String) -> Unit) {
             }
             .sortedWith(
                 compareByDescending<AppListLoader.AppEntry> {
-                    if (selectedFirst) realScope.contains(it.info.packageName) else false
+                    // 置顶依据用「生效名单」而非框架作用域：本地/未知模式下 realScope 恒空，置顶会失效
+                    if (selectedFirst) enabled.contains(it.info.packageName) else false
                 }.thenBy(
                     if (reverse) reverseOrder() else naturalOrder(),
                 ) { e ->
@@ -539,12 +572,13 @@ private fun ScopeScreen(onMessage: (String) -> Unit) {
             }
         }
 
-        // 状态说明卡
+        // 状态说明卡（按模式给不同说明；UNKNOWN 才用警示色，本地模式不是异常态）
         Card(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (fs.connected || isPatchEnv) MaterialTheme.colorScheme.secondaryContainer
-                else MaterialTheme.colorScheme.errorContainer,
+                containerColor = if (mode == FrameworkEnv.RuntimeMode.UNKNOWN)
+                    MaterialTheme.colorScheme.errorContainer
+                else MaterialTheme.colorScheme.secondaryContainer,
             ),
         ) {
             Column(Modifier.padding(14.dp)) {
@@ -554,18 +588,30 @@ private fun ScopeScreen(onMessage: (String) -> Unit) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = when {
-                        isPatchEnv -> stringResource(R.string.patch_env_local_detail)
-                        fs.connected -> stringResource(R.string.scope_hint_lsp)
-                        else -> stringResource(R.string.scope_hint_off)
+                    text = when (mode) {
+                        FrameworkEnv.RuntimeMode.LSPOSED ->
+                            if (canManageScope) stringResource(R.string.scope_hint_lsp)
+                            else stringResource(R.string.scope_hint_off)
+                        FrameworkEnv.RuntimeMode.PATCH_LOCAL -> stringResource(R.string.scope_hint_patch_local)
+                        FrameworkEnv.RuntimeMode.PATCH_EMBEDDED -> stringResource(R.string.scope_hint_patch_embedded)
+                        FrameworkEnv.RuntimeMode.UNKNOWN -> stringResource(R.string.scope_hint_unknown)
                     },
                     style = MaterialTheme.typography.bodySmall,
                 )
-                if (!fs.connected && !isPatchEnv) {
-                    Spacer(Modifier.height(8.dp))
-                    FilledTonalButton(onClick = { openLsposedManager(context) }) {
-                        Text(stringResource(R.string.scope_open_lsp))
+                when (mode) {
+                    FrameworkEnv.RuntimeMode.LSPOSED -> if (!canManageScope) {
+                        Spacer(Modifier.height(8.dp))
+                        FilledTonalButton(onClick = { openLsposedManager(context) }) {
+                            Text(stringResource(R.string.scope_open_lsp))
+                        }
                     }
+                    FrameworkEnv.RuntimeMode.PATCH_LOCAL, FrameworkEnv.RuntimeMode.UNKNOWN -> {
+                        Spacer(Modifier.height(8.dp))
+                        FilledTonalButton(onClick = { openPatchManager(context, onMessage) }) {
+                            Text(stringResource(R.string.patch_open_manager))
+                        }
+                    }
+                    FrameworkEnv.RuntimeMode.PATCH_EMBEDDED -> Unit
                 }
             }
         }
@@ -582,20 +628,26 @@ private fun ScopeScreen(onMessage: (String) -> Unit) {
                     val pkg = entry.info.packageName
                     val inScope = realScope.contains(pkg)
                     val isEnabled = enabled.contains(pkg)
+                    // 「注入是否就绪」按模式取不同真相源：
+                    //  - LSPOSED：框架作用域（realScope）
+                    //  - PATCH_LOCAL：该应用是否已用本模块打过补丁（realScope 在此模式恒空，不能用）
+                    //  - PATCH_EMBEDDED：框架把作用域固定为宿主，凡出现在列表即视为已就绪
+                    //  - UNKNOWN：未知，按未就绪显示（勾了也不会生效，文案会提示）
+                    val injectReady = when (mode) {
+                        FrameworkEnv.RuntimeMode.LSPOSED -> inScope
+                        FrameworkEnv.RuntimeMode.PATCH_LOCAL -> entry.info.isPatched
+                        FrameworkEnv.RuntimeMode.PATCH_EMBEDDED -> true
+                        FrameworkEnv.RuntimeMode.UNKNOWN -> false
+                    }
                     AppRow(
                         entry = entry,
                         isEnabled = isEnabled,
-                        inScope = inScope,
+                        injectReady = injectReady,
                         onClick = {
-                            if (!fs.connected && !isPatchEnv) {
-                                onMessage("框架服务未连接，无法管理作用域")
-                            } else {
-                                pending = if (isEnabled || inScope) {
-                                    PendingAction(pkg, entry.info.label, Action.DISABLE)
-                                } else {
-                                    PendingAction(pkg, entry.info.label, Action.ENABLE)
-                                }
-                            }
+                            // 任何模式都能管理生效名单，不再以「服务连接」为门槛
+                            //（本地模式 UI 进程本就拿不到框架服务，那是常态不是异常）
+                            val action = if (isEnabled || injectReady) Action.DISABLE else Action.ENABLE
+                            pending = PendingAction(pkg, entry.info.label, action, entry.info.isPatched)
                         },
                     )
                 }
@@ -629,8 +681,13 @@ private fun ScopeScreen(onMessage: (String) -> Unit) {
             },
             text = {
                 Text(
+                    // 本地模式不弹授权框，必须用专属文案，否则用户会一直等一个不会出现的系统弹框
                     stringResource(
-                        if (act.action == Action.ENABLE) R.string.confirm_add_body else R.string.confirm_remove_body,
+                        when {
+                            act.action == Action.DISABLE -> R.string.confirm_remove_body
+                            mode == FrameworkEnv.RuntimeMode.PATCH_LOCAL -> R.string.confirm_add_body_local
+                            else -> R.string.confirm_add_body
+                        },
                         act.label,
                     ),
                 )
@@ -638,49 +695,60 @@ private fun ScopeScreen(onMessage: (String) -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     pending = null
+                    // RemotePreferences 只在框架服务真正可用时才写；否则只写模块私有 prefs（Provider 供宿主读）
+                    val remoteWritable = fs.connected
                     when (act.action) {
                         Action.ENABLE -> {
-                            // 生效名单立即写入（实时层，所有环境都有效）
-                            enabled = RedirectConfig.enable(context, act.pkg)
-                            if (isPatchEnv) {
-                                // LSPatch/NPatch 本地模式：作用域=「哪些应用用本模块打了补丁」，
-                                // 由补丁管理器管（运行时 requestScope 必被框架拒绝，不调用）；
-                                // 软件内勾选写生效名单即「在软件里自己开作用域」
-                                onMessage(
-                                    if (realScope.contains(act.pkg))
-                                        "已启用「${act.label}」：立即生效，无需重启"
-                                    else
-                                        "已启用「${act.label}」：该应用还没用本模块打补丁，请到补丁管理器添加后重装补丁包",
-                                )
-                            } else if (fs.connected) {
-                                // LSPosed：注入层走框架官方通道（弹「允许作用域」授权框）
-                                runCatching {
-                                    YukiHook.Module.scope.request(act.pkg) { approved, errorMessage, _ ->
-                                        if (approved) {
-                                            refreshTick++
-                                            onMessage("已加入作用域：${act.label}（重启该应用后生效）")
-                                        } else {
-                                            onMessage("作用域授权未通过（${errorMessage ?: "已取消"}），请到 LSPosed 管理器手动勾选")
-                                        }
-                                    }
-                                    onMessage("已启用「${act.label}」，请在系统弹框点「允许」，然后重启该应用一次")
-                                }.onFailure {
-                                    onMessage("已启用「${act.label}」（名单已写入）；作用域请求失败：${it.message}")
-                                }
-                            } else {
-                                onMessage("已启用「${act.label}」（框架服务未连接，作用域需到管理器手动勾选）")
-                            }
+                            // 生效名单立即写入（主通道=模块私有 prefs，经 ScopeProvider 供宿主跨进程读；
+                            // 服务可用时额外镜像一份到框架 RemotePreferences）
+                            enabled = RedirectConfig.enable(context, act.pkg, remoteWritable)
                             refreshTick++
+                            when (mode) {
+                                FrameworkEnv.RuntimeMode.LSPOSED -> {
+                                    // 注入层走框架官方通道（弹「允许作用域」授权框）
+                                    if (canManageScope) {
+                                        runCatching {
+                                            YukiHook.Module.scope.request(act.pkg) { approved, errorMessage, _ ->
+                                                if (approved) {
+                                                    refreshTick++
+                                                    onMessage("已加入作用域：${act.label}（重启该应用后生效）")
+                                                } else {
+                                                    onMessage("作用域授权未通过（${errorMessage ?: "已取消"}），请到 LSPosed 管理器手动勾选")
+                                                }
+                                            }
+                                            onMessage("已启用「${act.label}」，请在系统弹框点「允许」，然后重启该应用一次")
+                                        }.onFailure {
+                                            onMessage("已启用「${act.label}」（名单已写入）；作用域请求失败：${it.message}")
+                                        }
+                                    } else {
+                                        onMessage("已启用「${act.label}」；框架服务未连接，请到 LSPosed 管理器手动勾选作用域")
+                                    }
+                                }
+                                FrameworkEnv.RuntimeMode.PATCH_LOCAL -> {
+                                    // 本地模式：绝不请求作用域（框架必拒 + UI 拿不到服务）；
+                                    // 注入由补丁管理器在打补丁时决定，这里只管「注入后要不要动手」
+                                    onMessage(
+                                        if (act.isPatched)
+                                            "已启用「${act.label}」：该应用已打补丁，下次调起相机立即转为相册"
+                                        else
+                                            "已启用「${act.label}」：该应用还没用本模块打补丁，请到补丁管理器给它勾选本模块后重新打补丁",
+                                    )
+                                }
+                                FrameworkEnv.RuntimeMode.PATCH_EMBEDDED ->
+                                    onMessage("内置模式下模块对宿主自动生效，此处名单不影响该宿主。")
+                                FrameworkEnv.RuntimeMode.UNKNOWN ->
+                                    onMessage("已启用「${act.label}」（名单已写入）；未检测到框架，需框架实际注入后才会生效。")
+                            }
                         }
                         Action.DISABLE -> {
                             // 取消：生效名单立即移除（宿主下次调起立即恢复原生）
-                            enabled = RedirectConfig.disable(context, act.pkg)
-                            // 注入层同步移除（仅 LSPosed；补丁框架下 requestScope/removeScope 无意义）
-                            if (!isPatchEnv && fs.connected && realScope.contains(act.pkg)) {
+                            enabled = RedirectConfig.disable(context, act.pkg, remoteWritable)
+                            refreshTick++
+                            // 注入层同步移除仅 LSPosed 有意义；补丁框架的作用域由管理器管，不在此动
+                            if (mode == FrameworkEnv.RuntimeMode.LSPOSED && canManageScope && realScope.contains(act.pkg)) {
                                 runCatching { YukiHook.Module.scope.remove(act.pkg) }
                                     .onFailure { onMessage("移出作用域失败：${it.message}（已立即停用）") }
                             }
-                            refreshTick++
                             onMessage("已停用「${act.label}」：立即恢复原相机行为")
                         }
                     }
@@ -698,7 +766,17 @@ private fun ScopeScreen(onMessage: (String) -> Unit) {
 }
 
 /** 待确认操作。 */
-private data class PendingAction(val pkg: String, val label: String, val action: Action)
+/**
+ * 待确认操作。
+ * @param isPatched 该应用是否已用本模块打过补丁（本地模式下决定提示「立即生效」还是「请先去打补丁」）。
+ *   随操作一起快照下来，因为确认框在 LazyColumn 之外、访问不到 item 作用域的局部变量。
+ */
+private data class PendingAction(
+    val pkg: String,
+    val label: String,
+    val action: Action,
+    val isPatched: Boolean = false,
+)
 private enum class Action { ENABLE, DISABLE }
 
 /** 打开 LSPosed 管理器（该 fork 无作用域深链，开首页+Toast 指路）。 */
@@ -739,13 +817,19 @@ private fun openGitHub(context: Context) {
 
 private const val GITHUB_REPO = "https://github.com/yibanm/CaptureToPhotoPicker"
 
-/** 应用行：图标 + 名称 + 包名 + 勾选标记。整行点击=启用/取消（唯一交互）。 */
+/**
+ * 应用行：图标 + 名称 + 包名 + 状态徽标 + 勾选图标。整行点击=启用/取消（唯一交互）。
+ *
+ * @param injectReady 该应用是否「已就绪被注入」（LSPosed=在框架作用域内；本地模式=已用本模块打过补丁）。
+ *   已勾选但未就绪时显示「待生效」——用户据此知道还差一步（去授权 / 去打补丁），
+ *   避免勾了没反应却不知原因。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppRow(
     entry: AppListLoader.AppEntry,
     isEnabled: Boolean,
-    inScope: Boolean,
+    injectReady: Boolean,
     onClick: () -> Unit,
 ) {
     ListItem(
@@ -755,8 +839,8 @@ private fun AppRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(entry.info.packageName, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
                 when {
-                    isEnabled && inScope -> ScopeChip("已启用", MaterialTheme.colorScheme.primary)
-                    isEnabled && !inScope -> ScopeChip("待授权", MaterialTheme.colorScheme.tertiary)
+                    isEnabled && injectReady -> ScopeChip("已生效", MaterialTheme.colorScheme.primary)
+                    isEnabled && !injectReady -> ScopeChip("待生效", MaterialTheme.colorScheme.tertiary)
                 }
             }
         },

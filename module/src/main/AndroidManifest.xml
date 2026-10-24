@@ -42,6 +42,19 @@
                 <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
             </intent-filter>
         </activity>
+
+        <!--
+            生效名单的跨进程只读通道（主通道，见 ScopeProvider / RedirectConfig）。
+            本地模式下 UI 进程拿不到框架服务、RemotePreferences 会静默退回各自私有 prefs（两份不同存储），
+            故宿主改经本 Provider 读模块私有 prefs 里的名单——只要模块 App 已安装即可用，不依赖框架服务。
+            exported=true 但只暴露「哪些包名启用了重定向」这一非敏感信息，不返回凭证/路径/隐私。
+        -->
+        <provider
+            android:name=".config.ScopeProvider"
+            android:authorities="com.richkobe.capturetophotopicker.config"
+            android:exported="true"
+            android:grantUriPermissions="false"
+            tools:ignore="ExportedContentProvider" />
     </application>
 
 </manifest>

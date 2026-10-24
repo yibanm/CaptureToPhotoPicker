@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
+import android.os.Build
+import com.richkobe.capturetophotopicker.config.FrameworkEnv
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -39,6 +41,10 @@ object AppListLoader {
                         installTime = pkgInfo?.firstInstallTime ?: 0L,
                         updateTime = pkgInfo?.lastUpdateTime ?: 0L,
                         isSystemApp = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0,
+                        // metaData 已由 getInstalledApplications(GET_META_DATA) 带出，检测零额外查询
+                        isPatched = FrameworkEnv.readPatchConfig(appInfo.metaData) != null ||
+                            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+                                appInfo.appComponentFactory?.contains("metaloader.LSPAppComponentFactoryStub") == true),
                     ),
                     icon = icon,
                 )
