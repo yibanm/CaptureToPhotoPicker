@@ -54,6 +54,16 @@ Google Material 3（动态取色 / edge-to-edge），顶部标题栏（模块名
 
 ## 安装
 
+### 三个文件装哪个？
+
+| 文件 | 是什么 | 谁需要 |
+|---|---|---|
+| `capturetophotopicker-<版本>-android-arm64.apk` | **模块本体**。LSPosed 用户直接装；免 root 用户打补丁时用它当模块 | 所有人（必装） |
+| `capturetophotopicker-demo-npatch-embedded-<版本>.apk` | **已打好的免 root 补丁包**（测试靶子 + 模块已内嵌），装上打开即见效果，无需自己打补丁、无需 root | 只想先试效果的 |
+| `capturetophotopicker-demo-<版本>-android-arm64.apk` | **测试靶子原始包**（未打补丁），自己用 NPatch/LSPatch 打补丁时当目标 App | 要自己打补丁的 |
+
+后两个是测试用 demo，非必需。认真使用只需第一个模块本体。
+
 ### LSPosed
 1. 安装 `capturetophotopicker-<版本>-android-arm64.apk`（模块本体）；
 2. 在 LSPosed 管理器中**启用本模块**（装完或更新后重启一次手机）；
