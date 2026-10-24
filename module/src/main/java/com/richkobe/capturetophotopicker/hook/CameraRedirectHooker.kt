@@ -70,8 +70,16 @@ object CameraRedirectHooker : YukiBaseHooker() {
         "${System.identityHashCode(activity)}:$requestCode"
 
     override fun onHook() {
-        // 内置模式检测：宿主补丁包 assets 里有本模块 APK 即 embed 模式（见 FrameworkEnv）
-        embeddedMode = runCatching { FrameworkEnv.isEmbeddedIn(appInfo.sourceDir) }.getOrDefault(false)
+        // 内置模式检测：读宿主 manifest 的补丁配置 meta-data（NPatch 键 "npatch" / LSPatch 键 "lspatch"，
+        // base64 JSON 里的 useManager 字段定内置/本地），详见 FrameworkEnv 的血泪教训注释。
+        // 不能用 appInfo.sourceDir 开 zip 找——NPatch 签名绕过把 sourceDir 重定向到 cache 里的
+        // origin.apk（原始未打补丁包），那里面没有 assets/npatch/modules/，按 sourceDir 检测必然 false。
+        // PackageManager 从 systemContext 取（NPatch 自身解析配置也是这个手法）；取不到则传 null，
+        // 框架给的 appInfo.metaData 仍够用。
+        val pm = runCatching { systemContext.packageManager }.getOrNull()
+        embeddedMode = runCatching {
+            FrameworkEnv.isEmbeddedHost(packageName, appInfo, pm)
+        }.getOrDefault(false)
         if (embeddedMode) {
             YLog.info("检测到 LSPatch/NPatch 内置模式：对宿主自动启用相机重定向（无需配置）")
         }

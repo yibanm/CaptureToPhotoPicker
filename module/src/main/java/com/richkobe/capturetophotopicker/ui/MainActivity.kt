@@ -711,9 +711,11 @@ private fun openLsposedManager(context: Context) {
     }
 }
 
-/** 打开补丁管理器（LSPatch/NPatch 常见包名探测，失败 Toast 指路）。 */
+/** 打开补丁管理器（按实测包名探测，失败 Toast 指路）。 */
 private fun openPatchManager(context: Context, onMessage: (String) -> Unit) {
-    val candidates = listOf("org.lsposed.lspatch", "com.npatch.manager")
+    // 实测（2026-10-24，NPatch 1.0.8-801 补丁包 config.json）：managerPackageName=top.nkbe.npatch
+    // LSPatch 官方为 org.lsposed.lspatch；两个都试，都失败再兜底提示手动打开
+    val candidates = listOf("top.nkbe.npatch", "org.lsposed.lspatch", "com.npatch.manager")
     val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
     for (pkg in candidates) {
         val intent = Intent(launch).setPackage(pkg)
