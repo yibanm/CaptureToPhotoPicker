@@ -22,20 +22,10 @@
     <string name="status_hint">到「作用域」页点应用打勾＝启用相机转相册；再点一次取消＝立即停用。只有首次勾选需重启该应用一次。</string>
     <string name="status_refresh">刷新</string>
 
-    <!-- ===== 免 root 补丁框架（LSPatch / NPatch）===== -->
-    <string name="patch_env_title">当前运行在免 root 补丁框架：%1$s</string>
-    <string name="patch_env_builtin">内置(集成)模式：本模块已被嵌进目标应用，相机重定向自动生效，无需任何配置。</string>
-    <string name="patch_env_local_title">本地(经理)模式：直接在下方点应用打勾即可</string>
-    <string name="patch_env_local_detail">若点应用没反应（框架不允许运行时改作用域），请到 LSPatch / NPatch 管理器：选目标应用 → 模块 → 勾选「我没带身份证」→ 重新打补丁安装。</string>
-    <string name="patch_open_manager">打开补丁管理器</string>
-
     <!-- ===== 作用域页 ===== -->
     <string name="scope_count">已启用 %1$d 个应用</string>
-    <string name="scope_hint_lsp">点应用行打勾＝加入作用域并启用（系统会弹「允许作用域」授权框）；再点一次＝取消并立即停用。首次勾选后需重启该应用一次完成注入。</string>
-    <string name="scope_hint_patch_local">本地模式（已连接 %1$s 管理器）：点应用行打勾＝把它加入作用域，**加入后直接生效，不需要再在应用里点什么**；已打补丁的应用自动显示为已生效。再点一次＝移出作用域。</string>
-    <string name="scope_hint_patch_embedded">内置模式：模块已嵌进目标应用并对其自动生效，无需在此配置。此列表仅供查看与给其它已注入应用设置启停。</string>
-    <string name="scope_hint_unknown">未检测到 LSPosed，也没检测到已安装的 LSPatch / NPatch 管理器。仍可在此管理启停名单，但需框架真正注入后才会生效。</string>
-    <string name="scope_hint_off">框架服务未连接：无法读写作用域。请确认模块已在 LSPosed 中启用后重进本页。</string>
+    <string name="scope_hint_connected">LSPosed 已连接：勾选＝加入作用域并启用（系统弹「允许作用域」授权框，加入后重启该应用一次完成注入）；取消勾选＝移出作用域并立即停用。</string>
+    <string name="scope_hint_off">未连接 LSPosed 服务：此处的勾选作为实时启停开关，对**打过补丁**（LSPatch/NPatch 内置或本地模式）的应用立即生效；未打补丁的应用勾了也不生效。用 LSPosed 的话请先在管理器启用本模块并重启手机。</string>
     <string name="scope_open_lsp">打开 LSPosed 管理器</string>
     <string name="scope_search_hint">搜索应用名 / 包名</string>
     <string name="scope_empty">没有匹配的应用</string>
