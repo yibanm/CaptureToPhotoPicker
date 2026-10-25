@@ -102,7 +102,41 @@ object FrameworkEnv {
         UNKNOWN,
     }
 
-    // ============================ UI 侧：补丁管理器连接（本地模式的唯一判据） ============================
+    // ============================ 手动模式（用户切换，持久化） ============================
+
+    private const val MANUAL_MODE_FILE = "manual_mode"
+    private const val KEY_MANUAL_MODE = "mode"
+
+    /**
+     * 读用户手动选择的运行模式；没选过返回 null。
+     * 存模块私有 prefs 即可——模式只影响 UI 行为与「是否去连补丁管理器」，
+     * hook 侧的自动生效判定走 [isPatchedHost]（读宿主 manifest），不依赖这个值。
+     */
+    fun readManualMode(context: Context): RuntimeMode? = runCatching {
+        val name = context.getSharedPreferences(MANUAL_MODE_FILE, Context.MODE_PRIVATE)
+            .getString(KEY_MANUAL_MODE, null) ?: return null
+        val parsed = RuntimeMode.valueOf(name)
+        // 旧版本可能持久化了已移除的选项（如 PATCH_EMBEDDED，内置模式无 UI 不可手选）：
+        // 读到不可选项视为未选，回落到默认，避免界面显示一个选不回去的模式
+        if (parsed in selectableModes) parsed else null
+    }.getOrNull()
+
+    /** 写用户手动选择的运行模式。 */
+    fun writeManualMode(context: Context, mode: RuntimeMode) {
+        runCatching {
+            context.getSharedPreferences(MANUAL_MODE_FILE, Context.MODE_PRIVATE)
+                .edit().putString(KEY_MANUAL_MODE, mode.name).apply()
+        }
+    }
+
+    /**
+     * 可手动切换的模式。
+     * 不含 PATCH_EMBEDDED：内置模式下模块被嵌进宿主 APK、**没有独立 UI 可运行**，
+     * 用户在界面上切到它没有意义（该模式由 hook 侧 [isPatchedHost] 自动识别并生效）。
+     */
+    val selectableModes = listOf(RuntimeMode.LSPOSED, RuntimeMode.PATCH_LOCAL)
+
+    // ============================ UI 侧：补丁管理器连接（本地模式需要） ============================
 
     /** 是否已实证连上补丁管理器（binder 获取 + IXposedService 验证 + 喂入底座成功）。 */
     @Volatile

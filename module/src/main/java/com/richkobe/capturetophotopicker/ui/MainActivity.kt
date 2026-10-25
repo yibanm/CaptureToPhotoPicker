@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -34,6 +35,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.highcapable.yukihookapi.YukiHook
@@ -80,23 +82,29 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // 运行模式检测：全部基于连接实证（框架服务 或 补丁管理器 binder），不猜测
+            // 运行模式：由用户手动切换按钮决定（持久化），不再自动检测猜测。
+            // 仅框架服务连接状态（fs）仍用于显示 LSPosed 版本号等只读信息。
             val fs = rememberFrameworkServiceState()
 
-            // 补丁管理器连接（本地模式的连接实证）：服务未连时，IO 线程主动向
-            // NPatch/LSPatch 管理器的 RemoteApiProvider 请求 XposedService binder 并喂入底座。
-            // 连上后 patchTick++ 触发模式重判；「装了管理器」本身不构成判据（见 FrameworkEnv.detectMode）。
+            // 手动模式：初值读持久化；没选过则默认 LSPOSED（本机以 LSPosed 为主）。
+            var mode by remember {
+                mutableStateOf(FrameworkEnv.readManualMode(context) ?: FrameworkEnv.RuntimeMode.LSPOSED)
+            }
             var patchTick by remember { mutableIntStateOf(0) }
-            LaunchedEffect(fs.connected) {
-                if (!fs.connected && !FrameworkEnv.patchManagerConnected) {
+
+            // 只有用户切到「本地模式」时，才主动去连补丁管理器（拿 binder 供 scope/preferences 用）。
+            // 其它模式不需要这个连接；LSPosed 模式下服务本就已连。
+            LaunchedEffect(mode, patchTick) {
+                if (mode == FrameworkEnv.RuntimeMode.PATCH_LOCAL && !FrameworkEnv.patchManagerConnected) {
                     withContext(Dispatchers.IO) { FrameworkEnv.tryConnectPatchManager(context) }
-                    patchTick++
                 }
             }
 
-            val mode = remember(fs.connected, fs.frameworkName, patchTick) {
-                FrameworkEnv.invalidateUiModeCache()
-                FrameworkEnv.detectMode(context, fs.frameworkName, fs.connected)
+            // 用户切换模式：写持久化 + 更新状态；切到本地模式会触发上面的连接
+            val onSwitchMode: (FrameworkEnv.RuntimeMode) -> Unit = { picked ->
+                FrameworkEnv.writeManualMode(context, picked)
+                mode = picked
+                patchTick++
             }
 
             MaterialTheme(colorScheme = scheme) {
@@ -120,9 +128,11 @@ class MainActivity : ComponentActivity() {
                             },
                             actions = {
                                 IconButton(onClick = { openGitHub(context) }) {
-                                    Icon(
+                                    // 用 Image 而非 Icon：Icon 会套单色 tint，把灰色圆角底+白 mark 的设计压平
+                                    Image(
                                         painter = painterResource(R.drawable.ic_github),
                                         contentDescription = stringResource(R.string.topbar_github),
+                                        modifier = Modifier.size(34.dp),
                                     )
                                 }
                             },
@@ -153,6 +163,7 @@ class MainActivity : ComponentActivity() {
                             StatusScreen(
                                 fs = fs,
                                 mode = mode,
+                                onSwitchMode = onSwitchMode,
                                 onMessage = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
                                 onGoScope = { tab = 1 },
                             )
@@ -208,10 +219,12 @@ private data class FrameworkState(
 )
 
 /** Tab 0：运行模式、激活状态与使用指引。 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun StatusScreen(
     fs: FrameworkState,
     mode: FrameworkEnv.RuntimeMode,
+    onSwitchMode: (FrameworkEnv.RuntimeMode) -> Unit,
     onMessage: (String) -> Unit,
     onGoScope: () -> Unit,
 ) {
@@ -226,7 +239,7 @@ private fun StatusScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // 运行模式卡：本地模式下服务不连是常态，如实展示模式而非报「未激活」（模式检测不依赖服务连接）
+        // 运行模式卡：模式由用户手动切换（不再自动检测），选中项持久化
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -238,23 +251,40 @@ private fun StatusScreen(
                             FrameworkEnv.RuntimeMode.UNKNOWN -> Icons.Filled.HourglassEmpty
                         },
                         contentDescription = null,
-                        tint = if (mode == FrameworkEnv.RuntimeMode.UNKNOWN)
-                            MaterialTheme.colorScheme.error else Color(0xFF2E7D32),
+                        tint = Color(0xFF2E7D32),
                         modifier = Modifier.size(32.dp),
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        text = when (mode) {
-                            FrameworkEnv.RuntimeMode.LSPOSED -> "LSPosed 模式"
-                            FrameworkEnv.RuntimeMode.PATCH_EMBEDDED -> "免 root · 内置模式"
-                            FrameworkEnv.RuntimeMode.PATCH_LOCAL -> "免 root · 本地模式"
-                            FrameworkEnv.RuntimeMode.UNKNOWN -> "未检测到运行框架"
-                        },
+                        text = "运行模式",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "你是怎么装这个模块的？选一个，之后都按它来：",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                // 两张大卡：标题 + 一句话说清「这是什么、给谁用」，点卡即切换（持久化）
+                ModePickCard(
+                    title = "LSPosed",
+                    desc = "手机装了 LSPosed 管理器、在这里启用过本模块。作用域在「作用域」页点应用加入，系统弹授权框。",
+                    selected = mode == FrameworkEnv.RuntimeMode.LSPOSED,
+                    onClick = { onSwitchMode(FrameworkEnv.RuntimeMode.LSPOSED) },
+                )
+                Spacer(Modifier.height(10.dp))
+                ModePickCard(
+                    title = "免root本地模式",
+                    desc = "用 LSPatch / NPatch 补丁管理器把本模块打进目标应用里（不用 root）。已打补丁的应用自动生效；「作用域」页也能点应用管理。",
+                    selected = mode == FrameworkEnv.RuntimeMode.PATCH_LOCAL,
+                    onClick = { onSwitchMode(FrameworkEnv.RuntimeMode.PATCH_LOCAL) },
+                )
+
+                Spacer(Modifier.height(14.dp))
                 Text(
                     text = when (mode) {
                         FrameworkEnv.RuntimeMode.LSPOSED ->
@@ -262,27 +292,22 @@ private fun StatusScreen(
                                 "${fs.frameworkName} ${fs.frameworkVersion} · API ${fs.apiVersion}\n" +
                                     "在「作用域」页点应用打勾，系统会弹「允许作用域」授权框；之后实时启停无需重启应用。"
                             else
-                                "服务连接中…若长时间停留在此状态，请确认已在 LSPosed 管理器启用本模块，并重启过一次手机。"
+                                "LSPosed 方式：装模块 APK 后到 LSPosed 管理器启用本模块，重启一次手机即可。\n" +
+                                    "「作用域」页点应用打勾，系统弹授权框，加入后重启该应用一次完成注入。"
                         FrameworkEnv.RuntimeMode.PATCH_EMBEDDED ->
-                            "本模块已被嵌进目标应用，对该应用自动生效，无需任何配置。\n" +
-                                "作用域在打补丁时就固定为宿主自身（框架行为），这里不需要也不会去请求作用域。"
+                            "免 root · 内置模式：打补丁时把本模块嵌进目标应用，随宿主自动生效，无需任何配置。\n" +
+                                "作用域在打补丁时就固定为宿主自身，这里不需要也不会去请求作用域。"
                         FrameworkEnv.RuntimeMode.PATCH_LOCAL ->
-                            "免 root 本地模式：**不需要连接 Xposed 框架服务，也不请求作用域**。\n" +
-                                "哪些应用被注入由补丁管理器决定（打补丁时给目标应用勾选本模块）；\n" +
-                                "本框架不允许运行时改作用域，所以直接在「作用域」页点应用打勾即可实时启停重定向。\n" +
+                            "免 root · 本地模式：模块单独安装，注入哪些应用由补丁管理器决定（打补丁时给目标应用勾选本模块）。\n" +
+                                "已在管理器里选中的作用域，模块会自动对其生效；「作用域」页也能直接点应用打勾管理。\n" +
                                 "还没给应用打补丁的，点下方按钮到管理器里勾选本模块后重新打补丁。"
                         FrameworkEnv.RuntimeMode.UNKNOWN ->
-                            "没检测到 LSPosed，也没检测到已安装的 LSPatch/NPatch 管理器。\n" +
-                                "· 用 LSPosed：装模块 APK 后到管理器启用，再重启一次手机；\n" +
-                                "· 用免 root：装 NPatch/LSPatch 管理器，或直接用内置模式打补丁。\n" +
-                                "「作用域」页仍可管理启停名单，但要等框架真正注入后才会生效。"
+                            "请选择上方你的使用方式。"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (mode == FrameworkEnv.RuntimeMode.PATCH_LOCAL ||
-                    mode == FrameworkEnv.RuntimeMode.UNKNOWN
-                ) {
+                if (mode == FrameworkEnv.RuntimeMode.PATCH_LOCAL) {
                     Spacer(Modifier.height(12.dp))
                     FilledTonalButton(onClick = { openPatchManager(context, onMessage) }) {
                         Text(stringResource(R.string.patch_open_manager))
@@ -332,10 +357,54 @@ private fun StatusScreen(
     }
 }
 
+/**
+ * 模式选择大卡：标题 + 一句话说明 + 选中态描边。整卡可点。
+ * 做成大卡而非小分段按钮，是因为两种模式的使用前提完全不同（有没有 root、
+ * 模块怎么进的手机），用户需要一眼看懂「选这个意味着什么」。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModePickCard(
+    title: String,
+    desc: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            // 选中态描边（本版本 material3 无 CardDefaults.cardBorder，用 Modifier.border 等效实现）
+            .then(
+                if (selected) Modifier.border(
+                    width = 2.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = MaterialTheme.shapes.medium,
+                ) else Modifier,
+            ),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(12.dp))
+            RadioButton(selected = selected, onClick = onClick)
+        }
+    }
+}
+
 /** 首次使用三步指引卡（可折叠）。 */
 @Composable
-private fun SetupGuideCard() {
-    var expanded by rememberSaveable { mutableStateOf(true) }
+private fun SetupGuideCard() {    var expanded by rememberSaveable { mutableStateOf(true) }
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp)) {
             Row(
