@@ -41,7 +41,9 @@ import com.richkobe.capturetophotopicker.BuildConfig
 import com.richkobe.capturetophotopicker.R
 import com.richkobe.capturetophotopicker.config.FrameworkEnv
 import com.richkobe.capturetophotopicker.config.RedirectConfig
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 模块主界面：Material 3（动态取色、edge-to-edge）。
@@ -78,9 +80,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // 运行模式检测（不依赖服务是否连接——本地模式 UI 进程本就拿不到服务，见 FrameworkEnv）
+            // 运行模式检测：全部基于连接实证（框架服务 或 补丁管理器 binder），不猜测
             val fs = rememberFrameworkServiceState()
-            val mode = remember(fs.connected, fs.frameworkName) {
+
+            // 补丁管理器连接（本地模式的连接实证）：服务未连时，IO 线程主动向
+            // NPatch/LSPatch 管理器的 RemoteApiProvider 请求 XposedService binder 并喂入底座。
+            // 连上后 patchTick++ 触发模式重判；「装了管理器」本身不构成判据（见 FrameworkEnv.detectMode）。
+            var patchTick by remember { mutableIntStateOf(0) }
+            LaunchedEffect(fs.connected) {
+                if (!fs.connected && !FrameworkEnv.patchManagerConnected) {
+                    withContext(Dispatchers.IO) { FrameworkEnv.tryConnectPatchManager(context) }
+                    patchTick++
+                }
+            }
+
+            val mode = remember(fs.connected, fs.frameworkName, patchTick) {
                 FrameworkEnv.invalidateUiModeCache()
                 FrameworkEnv.detectMode(context, fs.frameworkName, fs.connected)
             }
@@ -459,13 +473,16 @@ private fun ScopeScreen(
     onMessage: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    // 只有 LSPosed（服务已连）才有「框架真实作用域」概念；其它模式一律空集，不作为交互门槛
-    val canManageScope = mode == FrameworkEnv.RuntimeMode.LSPOSED && fs.connected
+    // 可管理作用域 = 服务已连（LSPosed 框架服务，或本地模式下已实证连上补丁管理器——
+    // 管理器 binder 的 getScope/requestScope/removeScope 是真实现，见 FrameworkEnv 类注释）。
+    // 连接失败时一律 false，界面如实显示「未检测到」，绝不凭「装了管理器」猜测。
+    val canManageScope = fs.connected &&
+        (mode == FrameworkEnv.RuntimeMode.LSPOSED || mode == FrameworkEnv.RuntimeMode.PATCH_LOCAL)
 
     var apps by remember { mutableStateOf<List<AppListLoader.AppEntry>?>(null) }
     LaunchedEffect(Unit) { apps = runCatching { AppListLoader.load(context) }.getOrNull() }
 
-    // 注入层（框架真实作用域）与生效层（名单），任何变更后 refreshTick++ 重读
+    // 注入层（框架/管理器真实作用域）与生效层（名单，仅 LSPosed 需要），任何变更后 refreshTick++ 重读
     var refreshTick by remember { mutableIntStateOf(0) }
     var realScope by remember { mutableStateOf<Set<String>>(emptySet()) }
     var enabled by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -488,7 +505,15 @@ private fun ScopeScreen(
     // 待确认操作
     var pending by remember { mutableStateOf<PendingAction?>(null) }
 
-    val visibleApps = remember(apps, query, sortType, filter, reverse, selectedFirst, realScope, enabled) {
+    val visibleApps = remember(apps, query, sortType, filter, reverse, selectedFirst, realScope, enabled, mode) {
+        // 「是否已生效」的唯一判定，列表渲染与置顶排序共用，避免两处逻辑漂移
+        fun isEffective(e: AppListLoader.AppEntry): Boolean = when (mode) {
+            FrameworkEnv.RuntimeMode.LSPOSED -> enabled.contains(e.info.packageName)
+            FrameworkEnv.RuntimeMode.PATCH_LOCAL ->
+                realScope.contains(e.info.packageName) || e.info.isPatched
+            FrameworkEnv.RuntimeMode.PATCH_EMBEDDED -> e.info.isPatched
+            FrameworkEnv.RuntimeMode.UNKNOWN -> false
+        }
         (apps ?: emptyList()).asSequence()
             .filter { e ->
                 when (filter) {
@@ -504,8 +529,8 @@ private fun ScopeScreen(
             }
             .sortedWith(
                 compareByDescending<AppListLoader.AppEntry> {
-                    // 置顶依据用「生效名单」而非框架作用域：本地/未知模式下 realScope 恒空，置顶会失效
-                    if (selectedFirst) enabled.contains(it.info.packageName) else false
+                    // 置顶依据与生效判定同源（本地/内置模式看补丁状态而非名单，否则置顶失效）
+                    if (selectedFirst) isEffective(it) else false
                 }.thenBy(
                     if (reverse) reverseOrder() else naturalOrder(),
                 ) { e ->
@@ -592,7 +617,10 @@ private fun ScopeScreen(
                         FrameworkEnv.RuntimeMode.LSPOSED ->
                             if (canManageScope) stringResource(R.string.scope_hint_lsp)
                             else stringResource(R.string.scope_hint_off)
-                        FrameworkEnv.RuntimeMode.PATCH_LOCAL -> stringResource(R.string.scope_hint_patch_local)
+                        FrameworkEnv.RuntimeMode.PATCH_LOCAL -> stringResource(
+                            R.string.scope_hint_patch_local,
+                            FrameworkEnv.patchManagerName ?: "补丁",
+                        )
                         FrameworkEnv.RuntimeMode.PATCH_EMBEDDED -> stringResource(R.string.scope_hint_patch_embedded)
                         FrameworkEnv.RuntimeMode.UNKNOWN -> stringResource(R.string.scope_hint_unknown)
                     },
@@ -627,15 +655,24 @@ private fun ScopeScreen(
                 items(visibleApps, key = { it.info.packageName }) { entry ->
                     val pkg = entry.info.packageName
                     val inScope = realScope.contains(pkg)
-                    val isEnabled = enabled.contains(pkg)
-                    // 「注入是否就绪」按模式取不同真相源：
-                    //  - LSPOSED：框架作用域（realScope）
-                    //  - PATCH_LOCAL：该应用是否已用本模块打过补丁（realScope 在此模式恒空，不能用）
-                    //  - PATCH_EMBEDDED：框架把作用域固定为宿主，凡出现在列表即视为已就绪
-                    //  - UNKNOWN：未知，按未就绪显示（勾了也不会生效，文案会提示）
+                    // 「是否生效」按模式取真相源：
+                    //  - LSPOSED：名单 ∩ 作用域（两层都满足才真生效）
+                    //  - PATCH_LOCAL：isPatched=true 即「已打补丁且被选进作用域」→ hook 自动生效，
+                    //    无需名单（用户要求：检测到被选择作用域后直接生效，不用在应用里点）；
+                    //    inScope 是连接管理器后实时读的作用域，同样代表已生效
+                    //  - PATCH_EMBEDDED：宿主自动生效（UI 里看到的补丁应用即已生效）
+                    //  - UNKNOWN：未连上任何框架，一律未生效
+                    val isEnabled = when (mode) {
+                        FrameworkEnv.RuntimeMode.LSPOSED -> enabled.contains(pkg)
+                        FrameworkEnv.RuntimeMode.PATCH_LOCAL -> inScope || entry.info.isPatched
+                        FrameworkEnv.RuntimeMode.PATCH_EMBEDDED -> entry.info.isPatched
+                        FrameworkEnv.RuntimeMode.UNKNOWN -> false
+                    }
+                    // 「待生效」= 用户已在名单里勾了但注入还没就绪（仅 LSPosed 会出现：
+                    // 已写名单、作用域授权还没批/应用还没重启）。补丁模式下 isPatched 即就绪，无中间态。
                     val injectReady = when (mode) {
                         FrameworkEnv.RuntimeMode.LSPOSED -> inScope
-                        FrameworkEnv.RuntimeMode.PATCH_LOCAL -> entry.info.isPatched
+                        FrameworkEnv.RuntimeMode.PATCH_LOCAL -> inScope || entry.info.isPatched
                         FrameworkEnv.RuntimeMode.PATCH_EMBEDDED -> true
                         FrameworkEnv.RuntimeMode.UNKNOWN -> false
                     }
@@ -644,9 +681,8 @@ private fun ScopeScreen(
                         isEnabled = isEnabled,
                         injectReady = injectReady,
                         onClick = {
-                            // 任何模式都能管理生效名单，不再以「服务连接」为门槛
-                            //（本地模式 UI 进程本就拿不到框架服务，那是常态不是异常）
-                            val action = if (isEnabled || injectReady) Action.DISABLE else Action.ENABLE
+                            // 任何模式都能操作，不以「服务连接」为门槛；UNKNOWN 下如实提示连不上
+                            val action = if (isEnabled) Action.DISABLE else Action.ENABLE
                             pending = PendingAction(pkg, entry.info.label, action, entry.info.isPatched)
                         },
                     )
@@ -699,57 +735,49 @@ private fun ScopeScreen(
                     val remoteWritable = fs.connected
                     when (act.action) {
                         Action.ENABLE -> {
-                            // 生效名单立即写入（主通道=模块私有 prefs，经 ScopeProvider 供宿主跨进程读；
-                            // 服务可用时额外镜像一份到框架 RemotePreferences）
+                            // 生效名单立即写入（LSPosed 下 hook 据此判定；补丁宿主走自动生效，名单只是冗余记录）
                             enabled = RedirectConfig.enable(context, act.pkg, remoteWritable)
                             refreshTick++
-                            when (mode) {
-                                FrameworkEnv.RuntimeMode.LSPOSED -> {
-                                    // 注入层走框架官方通道（弹「允许作用域」授权框）
-                                    if (canManageScope) {
-                                        runCatching {
-                                            YukiHook.Module.scope.request(act.pkg) { approved, errorMessage, _ ->
-                                                if (approved) {
-                                                    refreshTick++
-                                                    onMessage("已加入作用域：${act.label}（重启该应用后生效）")
-                                                } else {
-                                                    onMessage("作用域授权未通过（${errorMessage ?: "已取消"}），请到 LSPosed 管理器手动勾选")
-                                                }
-                                            }
-                                            onMessage("已启用「${act.label}」，请在系统弹框点「允许」，然后重启该应用一次")
-                                        }.onFailure {
-                                            onMessage("已启用「${act.label}」（名单已写入）；作用域请求失败：${it.message}")
+                            if (canManageScope) {
+                                // LSPosed：框架弹「允许作用域」授权框；本地模式：管理器直接写入作用域并回调
+                                runCatching {
+                                    YukiHook.Module.scope.request(act.pkg) { approved, errorMessage, _ ->
+                                        if (approved) {
+                                            refreshTick++
+                                            onMessage(
+                                                if (mode == FrameworkEnv.RuntimeMode.PATCH_LOCAL)
+                                                    "已加入作用域：${act.label}（直接生效，无需重启、无需再点）"
+                                                else "已加入作用域：${act.label}（重启该应用后生效）"
+                                            )
+                                        } else {
+                                            onMessage("作用域授权未通过（${errorMessage ?: "已取消"}）")
                                         }
-                                    } else {
-                                        onMessage("已启用「${act.label}」；框架服务未连接，请到 LSPosed 管理器手动勾选作用域")
                                     }
+                                    if (mode == FrameworkEnv.RuntimeMode.PATCH_LOCAL) {
+                                        onMessage("正在加入作用域：${act.label}")
+                                    } else {
+                                        onMessage("已启用「${act.label}」，请在系统弹框点「允许」，然后重启该应用一次")
+                                    }
+                                }.onFailure {
+                                    onMessage("作用域请求失败：${it.message}；请到${if (mode == FrameworkEnv.RuntimeMode.PATCH_LOCAL) "补丁管理器" else "LSPosed 管理器"}手动勾选")
                                 }
-                                FrameworkEnv.RuntimeMode.PATCH_LOCAL -> {
-                                    // 本地模式：绝不请求作用域（框架必拒 + UI 拿不到服务）；
-                                    // 注入由补丁管理器在打补丁时决定，这里只管「注入后要不要动手」
-                                    onMessage(
-                                        if (act.isPatched)
-                                            "已启用「${act.label}」：该应用已打补丁，下次调起相机立即转为相册"
-                                        else
-                                            "已启用「${act.label}」：该应用还没用本模块打补丁，请到补丁管理器给它勾选本模块后重新打补丁",
-                                    )
-                                }
-                                FrameworkEnv.RuntimeMode.PATCH_EMBEDDED ->
-                                    onMessage("内置模式下模块对宿主自动生效，此处名单不影响该宿主。")
-                                FrameworkEnv.RuntimeMode.UNKNOWN ->
-                                    onMessage("已启用「${act.label}」（名单已写入）；未检测到框架，需框架实际注入后才会生效。")
+                            } else {
+                                // UNKNOWN：什么都没连上，如实告知（不做假动作）
+                                onMessage("已记录「${act.label}」，但未检测到可用的框架连接，需连上后才会生效")
                             }
                         }
                         Action.DISABLE -> {
-                            // 取消：生效名单立即移除（宿主下次调起立即恢复原生）
                             enabled = RedirectConfig.disable(context, act.pkg, remoteWritable)
                             refreshTick++
-                            // 注入层同步移除仅 LSPosed 有意义；补丁框架的作用域由管理器管，不在此动
-                            if (mode == FrameworkEnv.RuntimeMode.LSPOSED && canManageScope && realScope.contains(act.pkg)) {
+                            if (canManageScope && realScope.contains(act.pkg)) {
                                 runCatching { YukiHook.Module.scope.remove(act.pkg) }
-                                    .onFailure { onMessage("移出作用域失败：${it.message}（已立即停用）") }
+                                    .onFailure { onMessage("移出作用域失败：${it.message}（名单已移除）") }
                             }
-                            onMessage("已停用「${act.label}」：立即恢复原相机行为")
+                            onMessage(
+                                if (mode == FrameworkEnv.RuntimeMode.PATCH_LOCAL)
+                                    "已移出作用域：${act.label}（补丁应用需重新打补丁后彻底恢复）"
+                                else "已停用「${act.label}」：立即恢复原相机行为"
+                            )
                         }
                     }
                 }) {
@@ -789,19 +817,14 @@ private fun openLsposedManager(context: Context) {
     }
 }
 
-/** 打开补丁管理器（按实测包名探测，失败 Toast 指路）。 */
+/** 打开补丁管理器：用 getLaunchIntentForPackage（resolveActivity 在 Android 11+ 对 launcher intent 常返 null）。 */
 private fun openPatchManager(context: Context, onMessage: (String) -> Unit) {
-    // 实测（2026-10-24，NPatch 1.0.8-801 补丁包 config.json）：managerPackageName=top.nkbe.npatch
-    // LSPatch 官方为 org.lsposed.lspatch；两个都试，都失败再兜底提示手动打开
-    val candidates = listOf("top.nkbe.npatch", "org.lsposed.lspatch", "com.npatch.manager")
-    val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-    for (pkg in candidates) {
-        val intent = Intent(launch).setPackage(pkg)
-        if (intent.resolveActivity(context.packageManager) != null) {
-            runCatching { context.startActivity(intent) }.onSuccess { return }
-        }
+    for (pkg in FrameworkEnv.PATCH_MANAGER_PKGS) {
+        val intent = runCatching { context.packageManager.getLaunchIntentForPackage(pkg) }.getOrNull()
+            ?: continue
+        runCatching { context.startActivity(intent) }.onSuccess { return }
     }
-    onMessage("未找到补丁管理器，请手动打开 LSPatch / NPatch")
+    onMessage("未安装 LSPatch / NPatch 管理器（或无法启动）")
 }
 
 /** 打开 GitHub 仓库页。 */

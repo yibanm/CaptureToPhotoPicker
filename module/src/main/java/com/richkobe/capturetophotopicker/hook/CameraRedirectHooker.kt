@@ -59,29 +59,33 @@ object CameraRedirectHooker : YukiBaseHooker() {
     private val pendingOutputs = HashMap<String, Uri?>()
 
     /**
-     * LSPatch/NPatch 内置(embed)模式标记：模块被嵌进宿主补丁包时，框架把作用域固定为宿主
-     * 且随宿主启动自动加载——此模式下「自动识别、自动生效」，跳过生效层开关（用户没有机会
-     * 打开模块 UI 拨开关）。onHook 时检测一次缓存（object 单例按进程隔离，不会串宿主）。
+     * 补丁宿主自动生效标记（内置 + 本地两种补丁模式统一）：
+     *  - **内置(embed)**：模块被嵌进宿主补丁包，作用域固定为宿主、随宿主自动加载；
+     *  - **本地(local)**：宿主带补丁配置（manifest meta-data）说明它是打过补丁的 App，
+     *    而本模块代码能跑在它进程里＝用户在补丁管理器里明确把它选进了本模块作用域。
+     * 两种情况用户意图都已明确 → **直接生效，不查生效名单**（用户要求：
+     * 「本地模式检测到被选择作用域之后直接生效，不用在应用里点」）。
+     * LSPosed 注入的宿主无补丁配置 → false → 走 RedirectConfig 生效名单实时开关。
+     * onHook 时检测一次缓存（object 单例按进程隔离，不会串宿主）。
      */
     @Volatile
-    private var embeddedMode = false
+    private var patchedHostAutoActivate = false
 
     private fun outputKey(activity: Any?, requestCode: Int) =
         "${System.identityHashCode(activity)}:$requestCode"
 
     override fun onHook() {
-        // 内置模式检测：读宿主 manifest 的补丁配置 meta-data（NPatch 键 "npatch" / LSPatch 键 "lspatch"，
-        // base64 JSON 里的 useManager 字段定内置/本地），详见 FrameworkEnv 的血泪教训注释。
-        // 不能用 appInfo.sourceDir 开 zip 找——NPatch 签名绕过把 sourceDir 重定向到 cache 里的
-        // origin.apk（原始未打补丁包），那里面没有 assets/npatch/modules/，按 sourceDir 检测必然 false。
+        // 补丁宿主检测：读宿主 manifest 的补丁配置 meta-data（NPatch 键 "npatch" / LSPatch 键 "lspatch"），
+        // 详见 FrameworkEnv 的血泪教训注释——不能用 appInfo.sourceDir 开 zip 找，
+        // NPatch 签名绕过把 sourceDir 重定向到 origin.apk（原始未打补丁包），按它检测必然 false。
         // PackageManager 从 systemContext 取（NPatch 自身解析配置也是这个手法）；取不到则传 null，
         // 框架给的 appInfo.metaData 仍够用。
         val pm = runCatching { systemContext.packageManager }.getOrNull()
-        embeddedMode = runCatching {
-            FrameworkEnv.isEmbeddedHost(packageName, appInfo, pm)
+        patchedHostAutoActivate = runCatching {
+            FrameworkEnv.isPatchedHost(packageName, appInfo, pm)
         }.getOrDefault(false)
-        if (embeddedMode) {
-            YLog.info("检测到 LSPatch/NPatch 内置模式：对宿主自动启用相机重定向（无需配置）")
+        if (patchedHostAutoActivate) {
+            YLog.info("检测到补丁宿主（内置或本地模式，已在作用域内）：自动生效，无需名单")
         }
 
         // 出站：拦截 startActivityForResult（两个重载都 hook），把相机 Intent 改写成 PhotoPicker
@@ -109,16 +113,16 @@ object CameraRedirectHooker : YukiBaseHooker() {
         YLog.info("CameraRedirectHooker 已装载，相机→PhotoPicker 重定向就绪")
     }
 
-    /** 出站改写：宿主在「生效名单」内且命中相机 Intent 才改成 PhotoPicker，并记录原 EXTRA_OUTPUT。 */
+    /** 出站改写：宿主在「生效名单」内（或补丁宿主自动生效）且命中相机 Intent 才改成 PhotoPicker，并记录原 EXTRA_OUTPUT。 */
     private fun HookParam.redirectOutgoing() {
         val activity = instanceOrNull<Activity>() ?: return
 
         // 生效层开关（实时、无需重启宿主）：模块 UI 未勾选本宿主时一律放行，
         // 保持宿主原生相机行为——这是「取消作用域后马上失效」的落点。
-        // 例外：LSPatch/NPatch 内置(embed)模式跳过开关——模块被嵌进宿主补丁包即应对宿主
-        // 自动生效（用户没有打开模块 UI 拨开关的机会），这就是「自动识别本软件自动捕捉作用域」。
+        // 例外：补丁宿主（内置/本地模式）跳过名单——见 patchedHostAutoActivate 注释，
+        // 模块跑在补丁宿主进程里＝用户已把它选进作用域，直接生效。
         // 接收者是外层 Hooker（YukiBaseHooker : PackageParam），持有宿主 packageName 与 preferences 通道。
-        if (!embeddedMode && !RedirectConfig.isEnabledFor(this@CameraRedirectHooker)) return
+        if (!patchedHostAutoActivate && !RedirectConfig.isEnabledFor(this@CameraRedirectHooker)) return
 
         val intent = args.firstOrNull { it is Intent } as? Intent ?: return
         val requestCode = args.firstOrNull { it is Int } as? Int ?: return

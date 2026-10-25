@@ -32,7 +32,7 @@
     <!-- ===== 作用域页 ===== -->
     <string name="scope_count">已启用 %1$d 个应用</string>
     <string name="scope_hint_lsp">点应用行打勾＝加入作用域并启用（系统会弹「允许作用域」授权框）；再点一次＝取消并立即停用。首次勾选后需重启该应用一次完成注入。</string>
-    <string name="scope_hint_patch_local">本地模式：**点应用行打勾即可启用，不需要连接框架、也不会请求作用域**（补丁框架不允许运行时改作用域）。哪些应用被注入由补丁管理器在打补丁时决定——没打补丁的应用勾了也不生效，请到管理器给它勾选本模块后重新打补丁。</string>
+    <string name="scope_hint_patch_local">本地模式（已连接 %1$s 管理器）：点应用行打勾＝把它加入作用域，**加入后直接生效，不需要再在应用里点什么**；已打补丁的应用自动显示为已生效。再点一次＝移出作用域。</string>
     <string name="scope_hint_patch_embedded">内置模式：模块已嵌进目标应用并对其自动生效，无需在此配置。此列表仅供查看与给其它已注入应用设置启停。</string>
     <string name="scope_hint_unknown">未检测到 LSPosed，也没检测到已安装的 LSPatch / NPatch 管理器。仍可在此管理启停名单，但需框架真正注入后才会生效。</string>
     <string name="scope_hint_off">框架服务未连接：无法读写作用域。请确认模块已在 LSPosed 中启用后重进本页。</string>
@@ -43,7 +43,7 @@
     <!-- 确认框 -->
     <string name="confirm_add_title">启用相机转相册</string>
     <string name="confirm_add_body">为「%1$s」启用相机拍照转相册选择？\n\n点「启用」后系统会弹出「允许作用域」授权框，点允许即加入；之后需重启该应用一次完成注入。再次点它可取消。</string>
-    <string name="confirm_add_body_local">为「%1$s」启用相机拍照转相册选择？\n\n本地模式下**不会弹授权框、也不需要框架连接**，点「启用」即写入生效名单，该应用下次调起相机立即转为相册选择。\n\n前提：该应用已用本模块打过补丁（在补丁管理器里勾选了本模块）。还没打补丁的，请先去管理器勾选后重新打补丁。</string>
+    <string name="confirm_add_body_local">把「%1$s」加入作用域？\n\n本地模式下点「启用」即写入补丁管理器的作用域（不弹授权框），**加入后直接生效**，无需再在应用里点什么。\n\n注意：加入作用域只对「用本模块打过补丁」的应用有意义；还没打补丁的应用，请先到补丁管理器给它勾选本模块后重新打补丁。</string>
     <string name="confirm_remove_title">取消启用</string>
     <string name="confirm_remove_body">取消「%1$s」的相机转相册？\n\n取消后立即恢复系统相机行为，无需重启。</string>
     <string name="confirm_add_btn">启用</string>
